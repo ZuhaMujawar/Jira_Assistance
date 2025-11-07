@@ -1,0 +1,1971 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JIRA Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #0f1419 0%, #1a2332 50%, #2c5282 100%);
+            min-height: 100vh; color: #333; padding: 20px;
+        }
+        .container { max-width: 1400px; margin: 0 auto; }
+        .header {
+            background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px);
+            padding: 30px; border-radius: 20px; margin-bottom: 30px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15); text-align: center;
+        }
+        .header h1 { font-size: 2.5rem; font-weight: 700; color: #1a202c; margin-bottom: 10px; }
+        .header p { font-size: 1.1rem; color: #4a5568; font-weight: 400; }
+        .search-section {
+            background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(10px);
+            padding: 40px; border-radius: 20px; margin-bottom: 30px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+        .search-section h2 { font-size: 1.5rem; font-weight: 600; color: #2d3748; margin-bottom: 20px; }
+        .search-controls { display: flex; gap: 15px; align-items: center; flex-wrap: wrap; }
+        .search-input {
+            flex: 1; min-width: 800px; width: 100%; padding: 15px 20px; border: 2px solid #e2e8f0;
+            border-radius: 12px; font-size: 16px; font-family: inherit; transition: all 0.3s ease;
+        }
+        .search-input:focus { outline: none; border-color: #3182ce; box-shadow: 0 0 0 3px rgba(49, 130, 206, 0.1); }
+        
+        .search-container {
+            position: relative;
+            flex: 1;
+            min-width: 800px;
+        }
+        
+        .suggestions-dropdown {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: white;
+            border: 2px solid #e2e8f0;
+            border-top: none;
+            border-radius: 0 0 12px 12px;
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 1000;
+            display: none;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+        
+        .suggestion-item {
+            padding: 10px 15px;
+            cursor: pointer;
+            border-bottom: 1px solid #f1f5f9;
+            transition: background-color 0.2s ease;
+        }
+        
+        .suggestion-item:hover, .suggestion-item.highlighted {
+            background-color: #f8fafc;
+        }
+        
+        .suggestion-item:last-child {
+            border-bottom: none;
+        }
+        
+        .suggestion-main {
+            font-weight: 600;
+            color: #2d3748;
+        }
+        
+        .suggestion-desc {
+            font-size: 0.85rem;
+            color: #718096;
+            margin-top: 2px;
+        }
+        .btn {
+            padding: 15px 30px; border: none; border-radius: 12px; font-size: 16px;
+            font-weight: 600; cursor: pointer; transition: all 0.3s ease;
+            display: inline-flex; align-items: center; gap: 8px; text-decoration: none;
+        }
+        .btn-primary { background: linear-gradient(135deg, #3182ce, #2c5aa0); color: white; }
+        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(49, 130, 206, 0.4); }
+        .btn-secondary { background: linear-gradient(135deg, #718096, #4a5568); color: white; }
+        .btn-secondary:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(113, 128, 150, 0.4); }
+        .loading { text-align: center; color: white; padding: 60px 20px; display: none; }
+        .loading h3 { font-size: 1.5rem; margin-bottom: 10px; }
+        .loading .spinner {
+            width: 40px; height: 40px; border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top: 4px solid white; border-radius: 50%; animation: spin 1s linear infinite; margin: 20px auto;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .empty-state { text-align: center; color: white; padding: 60px 20px; }
+        .empty-state h3 { font-size: 1.8rem; margin-bottom: 15px; font-weight: 600; }
+        .empty-state p { font-size: 1.1rem; opacity: 0.9; max-width: 600px; margin: 0 auto; line-height: 1.6; }
+        .results { margin-top: 30px; display: none; }
+        .feature-card {
+            background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px);
+            border-radius: 20px; margin: 20px 0; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            transition: all 0.3s ease; overflow: hidden;
+        }
+        .feature-card:hover { transform: translateY(-5px); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15); }
+        .feature-header {
+            padding: 25px 30px; cursor: pointer; font-weight: 600; color: #2d3748;
+            display: flex; align-items: center; justify-content: space-between;
+            background: linear-gradient(135deg, #f7fafc 0%, #edf2f7 100%);
+        }
+        .feature-header:hover { background: linear-gradient(135deg, #edf2f7 0%, #e2e8f0 100%); }
+        .feature-header i { font-size: 1.2rem; color: #3182ce; margin-right: 12px; }
+        .feature-title { display: flex; align-items: center; flex: 1; }
+        .feature-toggle-icon { transition: transform 0.3s ease; }
+        .feature-card.expanded .feature-toggle-icon { transform: rotate(45deg); }
+        .feature-details { display: none; padding: 30px; background: white; }
+        .section-toggle-icon { 
+            transition: transform 0.3s ease, color 0.3s ease; 
+            cursor: pointer;
+        }
+        .section-expanded .section-toggle-icon { 
+            transform: rotate(45deg); 
+            color: #dc2626 !important;
+        }
+        .section-toggle-icon:hover {
+            transform: scale(1.1);
+        }
+        
+        .feature-branch-structure { font-family: 'Inter', sans-serif; }
+        .branch-item { margin-bottom: 10px; }
+        .branch-item strong { color: #1f2937; font-size: 14px; }
+        .sub-details { margin-left: 20px; margin-top: 8px; }
+        .story-branch-item, .bug-branch-item { 
+            padding: 8px 0; 
+            border-bottom: 1px solid #f3f4f6; 
+            font-size: 13px; 
+            line-height: 1.4;
+        }
+        .story-branch-item:last-child, .bug-branch-item:last-child { border-bottom: none; }
+        .story-grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 20px; margin-top: 20px;
+        }
+        
+        .story-list {
+            margin-top: 15px;
+        }
+        
+        .story-list-item {
+            position: relative;
+        }
+        
+        .story-list-item .story-details {
+            position: static !important;
+            margin-top: 12px !important;
+            border-radius: 6px !important;
+            border: 1px solid #e2e8f0 !important;
+            background: #f8fafc !important;
+            box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.06) !important;
+            z-index: auto !important;
+        }
+        
+                .story-card {
+            background: #e6f3ff; border: 1px solid #4a90e2; border-radius: 8px; padding: 12px; margin: 8px 0;
+            transition: all 0.3s ease;
+        }
+        .story-card:hover { border-color: #3182ce; box-shadow: 0 8px 25px rgba(49, 130, 206, 0.1); }
+        
+        .story-details {
+            background: #f7fafc; 
+            border-top: 1px solid #e2e8f0; 
+            margin-top: 12px; 
+            padding: 12px; 
+            border-radius: 6px;
+            display: none;
+        }
+        
+        .story-expand-btn {
+            background: #4299e1; 
+            color: white; 
+            border: none; 
+            border-radius: 4px; 
+            padding: 4px 8px; 
+            margin-left: 8px; 
+            cursor: pointer; 
+            font-size: 12px;
+            transition: all 0.2s ease;
+        }
+        
+        .story-expand-btn:hover { 
+            background: #3182ce; 
+            transform: scale(1.05); 
+        }
+        .story-key {
+            background: linear-gradient(135deg, #3182ce, #2c5aa0); color: white;
+            padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: 600;
+            display: inline-block; margin-bottom: 12px;
+        }
+        .story-title { font-size: 1rem; font-weight: 600; color: #2d3748; margin-bottom: 10px; line-height: 1.4; }
+        .story-status { font-size: 0.9rem; color: #4a5568; margin-bottom: 8px; }
+        .story-assignee { font-size: 0.9rem; color: #718096; }
+        .bugs-section { margin-top: 15px; padding-top: 15px; border-top: 1px solid #e2e8f0; }
+        .bugs-title {
+            font-size: 0.9rem; font-weight: 600; color: #e53e3e; margin-bottom: 8px;
+            display: flex; align-items: center; gap: 6px;
+        }
+        .bug-item {
+            background: linear-gradient(135deg, #fed7d7, #feb2b2); color: #c53030;
+            padding: 6px 12px; border-radius: 12px; font-size: 12px; font-weight: 500;
+            margin: 4px 6px 4px 0; display: inline-block; border: 1px solid #fc8181;
+        }
+        .bug-card { transition: all 0.2s ease; }
+        .bug-card:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(237, 137, 54, 0.15); }
+        .error {
+            background: linear-gradient(135deg, #fed7d7, #feb2b2); color: #742a2a;
+            padding: 30px; border-radius: 15px; text-align: center; margin: 20px 0; border: 1px solid #fc8181;
+        }
+        .error h3 { margin-bottom: 10px; font-weight: 600; }
+        .stats-summary {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px; margin-bottom: 20px; padding: 20px;
+            background: rgba(255, 255, 255, 0.1); border-radius: 15px;
+        }
+        .stat-item { text-align: center; color: white; }
+        .stat-number { font-size: 2rem; font-weight: 700; margin-bottom: 5px; }
+        .stat-label { font-size: 0.9rem; opacity: 0.9; font-weight: 500; }
+        @media (max-width: 768px) {
+            .search-controls { flex-direction: column; align-items: stretch; }
+            .search-input { min-width: unset; width: 100%; }
+            .search-container { min-width: unset; }
+            .story-grid { grid-template-columns: 1fr; }
+            .header h1 { font-size: 2rem; }
+            .stats-summary { grid-template-columns: repeat(2, 1fr); }
+        }
+        @media (max-width: 480px) {
+            body { padding: 10px; }
+            .header, .search-section, .feature-header { padding: 20px; }
+            .feature-details { padding: 20px; }
+            .stats-summary { grid-template-columns: 1fr; gap: 10px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1><i class="fas fa-tasks"></i> JIRA Dashboard</h1>
+            <p>Epic & Story Management System with Advanced Bug Detection</p>
+        </div>
+        <div class="search-section">
+            <h2><i class="fas fa-search"></i> Search JIRA Epics & Stories</h2>
+            <div class="search-controls">
+                <div class="search-container">
+                    <input type="text" id="jqlInput" class="search-input" value="project = CTL-Fix AND fixVersion =&quot;CT PI26 Sep17-Jan06&quot; AND issuetype = &quot;Epic (Feature)&quot; AND &quot;Team[Team]&quot; = 5441" placeholder="Enter JQL query">
+                    <div id="suggestionsDropdown" class="suggestions-dropdown"></div>
+                </div>
+                <button class="btn btn-primary" onclick="console.log('Search button clicked'); searchJira();"><i class="fas fa-search"></i> Search</button>
+                <button class="btn btn-secondary" onclick="clearResults()"><i class="fas fa-times"></i> Clear</button>
+            </div>
+        </div>
+        <div id="loadingState" class="loading">
+            <div class="spinner"></div>
+            <h3>Searching JIRA...</h3>
+            <p>Please wait while we fetch your data</p>
+        </div>
+        <div id="searchResults" class="results"><div id="resultsContent"></div></div>
+        <div id="emptyState" class="empty-state">
+            <h3><i class="fas fa-rocket"></i> Ready to Search</h3>
+            <p>Enter a JQL query above to start exploring your JIRA epics and stories. The dashboard will automatically detect and highlight any blocking bugs.</p>
+        </div>
+    </div>
+
+    <script>
+        let searchData = [];
+
+        // Function to open JIRA issue in new tab
+        function openJiraIssue(issueKey) {
+            // Replace with your actual JIRA base URL
+            const jiraBaseUrl = 'https://lumen.atlassian.net';
+            const jiraUrl = `${jiraBaseUrl}/browse/${issueKey}`;
+            window.open(jiraUrl, '_blank');
+        }
+
+        async function searchJira() {
+            console.log('searchJira function called');
+            const jql = document.getElementById('jqlInput').value.trim();
+            console.log('JQL input value:', jql);
+            if (!jql) {
+                alert('Please enter a JQL query');
+                return;
+            }
+
+            showLoading(true);
+            hideResults();
+            hideEmptyState();
+
+            try {
+                console.log('Making search request to:', `http://localhost:3000/search?jql=${encodeURIComponent(jql)}`);
+                const response = await fetch(`http://localhost:3000/search?jql=${encodeURIComponent(jql)}`);
+                console.log('Search response status:', response.status);
+                const data = await response.json();
+                console.log('Search response data:', data);
+                
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
+                searchData = data.issues || [];
+                await processAndDisplayResults();
+                
+            } catch (error) {
+                console.error('Search error:', error);
+                showError(error.message);
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        async function processAndDisplayResults() {
+            if (searchData.length === 0) {
+                showEmptyResults();
+                return;
+            }
+
+            // Debug: log all issue types found
+            const issueTypes = [...new Set(searchData.map(issue => issue.fields.issuetype.name))];
+            console.log('Found issue types:', issueTypes);
+            console.log('Total issues:', searchData.length);
+
+            const epics = searchData.filter(issue => 
+                issue.fields.issuetype.name === 'Epic' || 
+                issue.fields.issuetype.name === 'Epic (Feature)' ||
+                issue.fields.issuetype.name.toLowerCase().includes('epic')
+            );
+            const stories = searchData.filter(issue => issue.fields.issuetype.name === 'Story');
+
+            console.log('Filtered epics:', epics.length);
+            console.log('Filtered stories:', stories.length);
+
+            let resultsHtml = '';
+
+            // Add statistics summary
+            resultsHtml += `
+                <div class="stats-summary">
+                    <div class="stat-item">
+                        <div class="stat-number">${epics.length}</div>
+                        <div class="stat-label">Features (Epics)</div>
+                    </div>
+                </div>
+            `;
+
+            // Process epics with their stories (optimized for speed)
+            let processedCount = 0;
+            for (const epic of epics) {
+                processedCount++;
+                
+                // Update loading message
+                const loadingDiv = document.getElementById('loadingState');
+                if (loadingDiv.style.display === 'block') {
+                    loadingDiv.innerHTML = `
+                        <div class="spinner"></div>
+                        <h3>Processing Epics... (${processedCount}/${epics.length})</h3>
+                        <p>Please wait while we fetch epic details</p>
+                    `;
+                }
+                
+                const epicStories = await getStoriesForEpic(epic.key);
+                const bugsForEpic = await getBugsForEpic(epic.key, epicStories);
+                
+                resultsHtml += createEpicCard(epic, epicStories, bugsForEpic);
+            }
+
+            // Process orphaned stories (stories without epics)
+            const orphanedStories = stories.filter(story => 
+                !story.fields.customfield_10014 || 
+                !epics.some(epic => epic.key === story.fields.customfield_10014)
+            );
+
+            if (orphanedStories.length > 0) {
+                resultsHtml += createOrphanedStoriesCard(orphanedStories);
+            }
+
+            document.getElementById('resultsContent').innerHTML = resultsHtml;
+            showResults();
+        }
+
+        async function getStoriesForEpic(epicKey) {
+            try {
+                const jql = `"Epic Link" = ${epicKey} AND issuetype = Story`;
+                const response = await fetch(`http://localhost:3000/search?jql=${encodeURIComponent(jql)}`);
+                const data = await response.json();
+                return data.issues || [];
+            } catch (error) {
+                console.error(`Error fetching stories for epic ${epicKey}:`, error);
+                return [];
+            }
+        }
+
+        async function getBugsForEpic(epicKey, stories) {
+            let allBugs = [];
+            
+            // Get bugs directly linked to epic (this is fast)
+            try {
+                const epicBugsJql = `"Epic Link" = ${epicKey} AND issuetype = Bug`;
+                const epicBugsResponse = await fetch(`http://localhost:3000/search?jql=${encodeURIComponent(epicBugsJql)}`);
+                const epicBugsData = await epicBugsResponse.json();
+                if (epicBugsData.issues) {
+                    allBugs = allBugs.concat(epicBugsData.issues);
+                }
+            } catch (error) {
+                console.error(`Error fetching bugs for epic ${epicKey}:`, error);
+            }
+
+            // Skip the individual story issue link checking for now to speed up the display
+            // This was causing hundreds of API calls and making the dashboard very slow
+            // TODO: Implement this as a background process or optimize the query
+
+            return allBugs;
+        }
+
+        function createBugCard(bug) {
+            return `
+                <div class="bug-card" style="background: #fef5e7; border: 1px solid #f6ad55; border-radius: 8px; padding: 12px; margin: 8px 0;">
+                    <div class="bug-header" style="display: flex; align-items: center; margin-bottom: 8px;">
+                        <div class="bug-key" style="background: #ed8936; color: white; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; margin-right: 10px; cursor: pointer;" 
+                             onclick="openJiraIssue('${bug.key}')" 
+                             title="Click to open ${bug.key} in JIRA">
+                            <i class="fas fa-bug" style="margin-right: 4px;"></i>${bug.key}
+                        </div>
+                        <div class="bug-priority" style="font-size: 12px; color: #744210;">
+                            Priority: ${bug.fields.priority ? bug.fields.priority.name : 'Not Set'}
+                        </div>
+                    </div>
+                    <div class="bug-title" style="font-weight: 600; color: #744210; margin-bottom: 8px; line-height: 1.4;">
+                        ${bug.fields.summary}
+                    </div>
+                    <div class="bug-details" style="display: flex; justify-content: space-between; align-items: center; font-size: 13px; color: #975a16;">
+                        <div class="bug-status">
+                            <i class="fas fa-info-circle" style="margin-right: 4px;"></i>Status: ${bug.fields.status.name}
+                        </div>
+                        <div class="bug-assignee">
+                            <i class="fas fa-user" style="margin-right: 4px;"></i>Assignee: ${bug.fields.assignee ? bug.fields.assignee.displayName : 'Unassigned'}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function createEpicCard(epic, stories, bugs) {
+            const bugCount = bugs.length;
+            const bugsHtml = bugs.length > 0 ? bugs.map(bug => createBugCard(bug)).join('') : '<span style="color: #68d391; font-weight: 500;">No blocking bugs found</span>';
+
+            // Extract Epic Feature Number from various possible fields
+            let featureNumber = '';
+            let featureInfo = '';
+            
+            // Check fixVersions first (most common for feature versions)
+            if (epic.fields.fixVersions && epic.fields.fixVersions.length > 0) {
+                featureNumber = epic.fields.fixVersions[0].name;
+                featureInfo = `Fix Version: ${featureNumber}`;
+            }
+            // Check various custom fields that might contain feature numbers
+            else if (epic.fields.customfield_10004) {
+                featureNumber = epic.fields.customfield_10004;
+                featureInfo = `Feature: ${featureNumber}`;
+            }
+            else if (epic.fields.customfield_10005) {
+                featureNumber = epic.fields.customfield_10005;
+                featureInfo = `Feature: ${featureNumber}`;
+            }
+            else if (epic.fields.customfield_10006) {
+                featureNumber = epic.fields.customfield_10006;
+                featureInfo = `Feature: ${featureNumber}`;
+            }
+            else if (epic.fields.customfield_10014) {
+                featureNumber = epic.fields.customfield_10014;
+                featureInfo = `Epic Link: ${featureNumber}`;
+            }
+            else if (epic.fields.customfield_10020) {
+                featureNumber = epic.fields.customfield_10020;
+                featureInfo = `Feature: ${featureNumber}`;
+            }
+            else if (epic.fields.customfield_10021) {
+                featureNumber = epic.fields.customfield_10021;
+                featureInfo = `Feature: ${featureNumber}`;
+            }
+            else if (epic.fields.customfield_10022) {
+                featureNumber = epic.fields.customfield_10022;
+                featureInfo = `Feature: ${featureNumber}`;
+            }
+            
+            // Debug logging to see all available fields
+            console.log('Epic debugging:', {
+                key: epic.key,
+                summary: epic.fields.summary,
+                fixVersions: epic.fields.fixVersions,
+                customfield_10004: epic.fields.customfield_10004,
+                customfield_10005: epic.fields.customfield_10005,
+                customfield_10006: epic.fields.customfield_10006,
+                customfield_10014: epic.fields.customfield_10014,
+                customfield_10020: epic.fields.customfield_10020,
+                customfield_10021: epic.fields.customfield_10021,
+                customfield_10022: epic.fields.customfield_10022,
+                customfield_10221: epic.fields.customfield_10221,
+                detectedFeature: featureNumber
+            });
+
+            return `
+                <div class="feature-card">
+                    <div class="feature-header" onclick="toggleFeature(this)">
+                        <div class="feature-title">
+                            <i class="fas fa-plus-circle feature-toggle-icon" style="color: #3182ce; margin-right: 8px; transition: transform 0.3s ease;"></i>
+                            <strong>Feature - ${epic.key}: ${epic.fields.summary}</strong>
+                        </div>
+                    </div>
+                    <div class="feature-details">
+                        <div class="feature-branch-structure">
+                            <!-- Benefit Hypothesis -->
+                            ${epic.fields.customfield_10221 ? `
+                            <div class="branch-item" style="margin-top: 15px;">
+                                <i class="fas fa-plus" style="color: #22c55e; margin-right: 8px;"></i>
+                                <strong>Benefit Hypothesis</strong>
+                                <div class="sub-details" style="margin-left: 24px; margin-top: 8px; background: #f0f9ff; padding: 12px; border-radius: 8px; border-left: 4px solid #3182ce;">
+                                    <p style="margin: 0; color: #1e40af; line-height: 1.6;">${epic.fields.customfield_10221}</p>
+                                </div>
+                            </div>
+                            ` : ''}
+
+                            <!-- Stories -->
+                            <div class="branch-item" style="margin-top: 15px;">
+                                <span onclick="toggleSection(this, 'stories')" style="cursor: pointer; display: inline-flex; align-items: center;">
+                                    <i class="fas fa-plus section-toggle-icon" style="color: #22c55e; margin-right: 8px; transition: transform 0.3s ease;"></i>
+                                    <strong>Stories = ${stories.length} stories</strong>
+                                </span>
+                                ${stories.length > 0 ? `
+                                <div class="sub-details stories-section" style="margin-left: 24px; margin-top: 10px; display: none;">
+                                    <div class="story-list">
+                                        ${stories.map(story => createStoryListItem(story)).join('')}
+                                    </div>
+                                </div>
+                                ` : `
+                                <div class="sub-details stories-section" style="margin-left: 24px; margin-top: 8px; color: #6b7280; font-style: italic; display: none;">
+                                    No stories found for this feature
+                                </div>
+                                `}
+                            </div>
+
+                            <!-- Bugs -->
+                            <div class="branch-item" style="margin-top: 15px;">
+                                <span onclick="toggleSection(this, 'bugs')" style="cursor: pointer; display: inline-flex; align-items: center;">
+                                    <i class="fas fa-plus section-toggle-icon" style="color: #22c55e; margin-right: 8px; transition: transform 0.3s ease;"></i>
+                                    <strong>Bugs = ${bugCount} total count</strong>
+                                </span>
+                                ${bugs.length > 0 ? `
+                                <div class="sub-details bugs-section" style="margin-left: 24px; margin-top: 10px; display: none;">
+                                    ${bugs.map(bug => `
+                                        <div class="bug-branch-item" style="margin-bottom: 8px;">
+                                            <i class="fas fa-bug" style="color: #dc2626; margin-right: 8px; font-size: 12px;"></i>
+                                            <span style="color: #dc2626; font-weight: 500; cursor: pointer; text-decoration: underline;" 
+                                                  onclick="openJiraIssue('${bug.key}')" 
+                                                  onmouseover="this.style.color='#b91c1c'" 
+                                                  onmouseout="this.style.color='#dc2626'"
+                                                  title="Click to open ${bug.key} in JIRA">${bug.key}</span> - ${bug.fields.summary}
+                                            <span style="background: #fef2f2; color: #dc2626; padding: 2px 6px; border-radius: 4px; font-size: 11px; margin-left: 8px;">${bug.fields.status.name}</span>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                                ` : `
+                                <div class="sub-details bugs-section" style="margin-left: 24px; margin-top: 8px; color: #6b7280; font-style: italic; display: none;">
+                                    No bugs found for this feature
+                                </div>
+                                `}
+                            </div>
+
+                            <!-- Capability Number -->
+                            ${epic.fields.parent ? `
+                            <div class="branch-item" style="margin-top: 15px;">
+                                <i class="fas fa-plus" style="color: #22c55e; margin-right: 8px;"></i>
+                                <strong>Capability Number</strong>
+                                <div class="sub-details" style="margin-left: 24px; margin-top: 8px;">
+                                    <span style="background: #dbeafe; color: #1e40af; padding: 6px 12px; border-radius: 6px; font-weight: 600;">${epic.fields.parent.key}</span>
+                                    ${epic.fields.parent.fields && epic.fields.parent.fields.summary ? ` - ${epic.fields.parent.fields.summary}` : ''}
+                                </div>
+                            </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function createOrphanedStoriesCard(stories) {
+            return `
+                <div class="feature-card">
+                    <div class="feature-header" onclick="toggleFeature(this)">
+                        <div class="feature-title">
+                            <i class="fas fa-book-open"></i>
+                            <strong>Orphaned Stories</strong> (${stories.length})
+                        </div>
+                        <i class="fas fa-chevron-down toggle-icon"></i>
+                    </div>
+                    <div class="feature-details">
+                        <p style="color: #718096; margin-bottom: 20px;">Stories not linked to any epic in the current search results.</p>
+                        <div class="story-list">
+                            ${stories.map(story => createStoryListItem(story)).join('')}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function createStoryListItem(story) {
+            const customField10221 = story.fields.customfield_10221;
+            
+            return `
+                <div class="story-list-item" style="
+                    margin-bottom: 8px; 
+                    background: white; 
+                    border: 1px solid #e2e8f0; 
+                    border-radius: 6px; 
+                    transition: all 0.2s ease;
+                " onmouseover="this.style.backgroundColor='#f8fafc'; this.style.borderColor='#3182ce';" onmouseout="this.style.backgroundColor='white'; this.style.borderColor='#e2e8f0';">
+                    
+                    <div style="
+                        display: flex; 
+                        align-items: center; 
+                        padding: 12px 16px; 
+                        font-size: 14px;
+                    ">
+                        <!-- Story Icon and Key -->
+                        <div style="display: flex; align-items: center; min-width: 120px; margin-right: 16px;">
+                            <i class="fas fa-book" style="color: #3182ce; margin-right: 8px; font-size: 12px;"></i>
+                            <span style="font-weight: 600; color: #1f2937; cursor: pointer; text-decoration: underline;" 
+                                  onclick="openJiraIssue('${story.key}')" 
+                                  onmouseover="this.style.color='#3182ce'" 
+                                  onmouseout="this.style.color='#1f2937'"
+                                  title="Click to open ${story.key} in JIRA">${story.key}</span>
+                        </div>
+                        
+                        <!-- Story Title -->
+                        <div style="flex: 1; margin-right: 16px;">
+                            <span style="color: #374151; line-height: 1.4;">${story.fields.summary}</span>
+                        </div>
+                        
+                        <!-- Status -->
+                        <div style="margin-right: 16px; min-width: 100px;">
+                            <span style="
+                                background: #f0f9ff; 
+                                color: #1e40af; 
+                                padding: 4px 8px; 
+                                border-radius: 4px; 
+                                font-size: 12px; 
+                                font-weight: 500;
+                            ">${story.fields.status.name}</span>
+                        </div>
+                        
+                        <!-- Assignee -->
+                        <div style="margin-right: 16px; min-width: 120px; font-size: 13px; color: #6b7280;">
+                            <i class="fas fa-user" style="margin-right: 4px;"></i>
+                            ${story.fields.assignee ? story.fields.assignee.displayName : 'Unassigned'}
+                        </div>
+                        
+                        <!-- Details Button -->
+                        <div>
+                            <button class="story-expand-btn" data-story-key="${story.key}" id="btn-${story.key}" style="
+                                background: #3182ce; 
+                                color: white; 
+                                border: none; 
+                                padding: 6px 12px; 
+                                border-radius: 4px; 
+                                font-size: 12px; 
+                                cursor: pointer; 
+                                transition: all 0.2s ease;
+                                display: flex;
+                                align-items: center;
+                                gap: 4px;
+                            " onmouseover="this.style.backgroundColor='#2563eb';" onmouseout="this.style.backgroundColor='#3182ce';">
+                                <i class="fas fa-plus"></i>
+                                <span>Details</span>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- Hidden Details Section -->
+                    <div class="story-details" id="details-${story.key}" style="display: none;">
+                        <div style="text-align: center; color: #666; padding: 20px;">
+                            <i class="fas fa-spinner fa-spin"></i> Loading story details...
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function createStoryCard(story) {
+            const customField10221 = story.fields.customfield_10221;
+            
+            return `
+                <div class="story-card">
+                    <div class="story-key">
+                        <span style="cursor: pointer; text-decoration: underline; font-weight: 600;" 
+                              onclick="openJiraIssue('${story.key}')" 
+                              onmouseover="this.style.color='#3182ce'" 
+                              onmouseout="this.style.color='inherit'"
+                              title="Click to open ${story.key} in JIRA">${story.key}</span>
+                        <button class="story-expand-btn" data-story-key="${story.key}" id="btn-${story.key}">
+                            <i class="fas fa-plus"></i> Details
+                        </button>
+                    </div>
+                    <div class="story-title">${story.fields.summary}</div>
+                    <div class="story-status"><i class="fas fa-info-circle"></i> Status: ${story.fields.status.name}</div>
+                    <div class="story-assignee"><i class="fas fa-user"></i> Assignee: ${story.fields.assignee ? story.fields.assignee.displayName : 'Unassigned'}</div>
+                    ${customField10221 ? `<div class="story-custom-field" style="color: #4a5568; font-size: 0.9rem; margin-top: 8px;"><i class="fas fa-tag"></i> Custom Field: ${customField10221}</div>` : ''}
+                    <div class="story-details" id="details-${story.key}">
+                        <div style="text-align: center; color: #666; padding: 20px;">
+                            <i class="fas fa-spinner fa-spin"></i> Loading story details...
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function toggleFeature(header) {
+            const card = header.parentElement;
+            const details = card.querySelector('.feature-details');
+            const isExpanded = card.classList.contains('expanded');
+
+            if (isExpanded) {
+                details.style.display = 'none';
+                card.classList.remove('expanded');
+            } else {
+                details.style.display = 'block';
+                card.classList.add('expanded');
+            }
+        }
+
+        function toggleSection(element, sectionType) {
+            event.stopPropagation(); // Prevent triggering parent toggleFeature
+            
+            const branchItem = element.parentElement;
+            const section = branchItem.querySelector(`.${sectionType}-section`);
+            const icon = element.querySelector('.section-toggle-icon');
+            
+            // Add a small delay to make the animation more visible
+            icon.style.transform = 'scale(0.9)';
+            
+            setTimeout(() => {
+                if (section.style.display === 'none' || section.style.display === '') {
+                    section.style.display = 'block';
+                    element.classList.add('section-expanded');
+                } else {
+                    section.style.display = 'none';
+                    element.classList.remove('section-expanded');
+                }
+                
+                // Reset the scale
+                icon.style.transform = '';
+            }, 100);
+        }
+
+        function clearResults() {
+            document.getElementById('jqlInput').value = '';
+            hideResults();
+            hideError();
+            showEmptyState();
+            searchData = [];
+        }
+
+        function showLoading(show) {
+            document.getElementById('loadingState').style.display = show ? 'block' : 'none';
+        }
+
+        function showResults() {
+            document.getElementById('searchResults').style.display = 'block';
+        }
+
+        function hideResults() {
+            document.getElementById('searchResults').style.display = 'none';
+        }
+
+        function showEmptyState() {
+            document.getElementById('emptyState').style.display = 'block';
+        }
+
+        function hideEmptyState() {
+            document.getElementById('emptyState').style.display = 'none';
+        }
+
+        function showEmptyResults() {
+            document.getElementById('resultsContent').innerHTML = `
+                <div class="error">
+                    <h3><i class="fas fa-search"></i> No Results Found</h3>
+                    <p>No Epic (Feature) issues were found for the selected fix version with Team[Team] = 5441.</p>
+                    <div style="margin-top: 15px; padding: 15px; background: #f7fafc; border-radius: 8px; border-left: 4px solid #3182ce;">
+                        <p style="margin: 0; font-weight: 500;"><i class="fas fa-lightbulb" style="color: #3182ce;"></i> Suggestions:</p>
+                        <ul style="margin: 8px 0 0 0; padding-left: 20px;">
+                            <li>Try <strong>CT PI26 Sep17-Jan06</strong> (has Epic Features available)</li>
+                            <li>Check if the selected fix version has Epic (Feature) issues with Team[Team] = 5441</li>
+                            <li>Try removing the Team[Team] filter to see if there are Epics in other teams</li>
+                            <li>Use the autocomplete to select from available fix versions</li>
+                        </ul>
+                    </div>
+                </div>
+            `;
+            showResults();
+        }
+
+        function showError(message) {
+            document.getElementById('resultsContent').innerHTML = `
+                <div class="error">
+                    <h3><i class="fas fa-exclamation-triangle"></i> Error</h3>
+                    <p>${message}</p>
+                </div>
+            `;
+            showResults();
+        }
+
+        function hideError() {
+            // Error messages are shown in results content, so clearing results will hide them
+        }
+
+        // Allow Enter key to trigger search
+        document.getElementById('jqlInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                searchJira();
+            }
+        });
+
+        // Autocomplete functionality
+        let fixVersions = [
+            { name: 'CT PI25 Jun25-Sep16', description: 'Planning Increment 25' },
+            { name: 'CT PI26 Sep17-Jan06', description: 'Planning Increment 26' },
+            { name: 'CT PI27 Jan07-Mar31', description: 'Planning Increment 27' },
+            { name: 'CT PI28 Apr01-Jun23', description: 'Planning Increment 28' }
+        ];
+        let currentHighlight = -1;
+
+        async function loadFixVersions() {
+            console.log('loadFixVersions function called');
+            try {
+                // Try different project keys that might work
+                let response;
+                try {
+                    console.log('Trying to fetch fix versions for project CTLF');
+                    response = await fetch('http://localhost:3000/fixversions?project=CTLF');
+                } catch (e) {
+                    try {
+                        console.log('Trying to fetch fix versions for project CTL');
+                        response = await fetch('http://localhost:3000/fixversions?project=CTL');
+                    } catch (e2) {
+                        console.log('Trying to fetch fix versions for project CTL-Fix');
+                        response = await fetch('http://localhost:3000/fixversions?project=CTL-Fix');
+                    }
+                }
+                
+                const data = await response.json();
+                console.log('Fix versions response:', data);
+                if (data.error) {
+                    console.warn('Fix versions API error:', data.error);
+                    // Fallback to common PI versions
+                    fixVersions = [
+                        { name: 'CT PI25 Jun25-Sep16', description: 'Planning Increment 25' },
+                        { name: 'CT PI26 Sep17-Jan06', description: 'Planning Increment 26' },
+                        { name: 'CT PI27 Jan07-Mar31', description: 'Planning Increment 27' },
+                        { name: 'CT PI28 Apr01-Jun23', description: 'Planning Increment 28' }
+                    ];
+                } else {
+                    fixVersions = data;
+                }
+                console.log('Loaded fix versions count:', fixVersions.length);
+                console.log('Fix versions array:', fixVersions);
+            } catch (error) {
+                console.error('Error loading fix versions:', error);
+                // Fallback versions
+                fixVersions = [
+                    { name: 'CT PI25 Jun25-Sep16', description: 'Planning Increment 25' },
+                    { name: 'CT PI26 Sep17-Jan06', description: 'Planning Increment 26' },
+                    { name: 'CT PI27 Jan07-Mar31', description: 'Planning Increment 27' },
+                    { name: 'CT PI28 Apr01-Jun23', description: 'Planning Increment 28' }
+                ];
+                console.log('Using fallback fix versions:', fixVersions);
+            }
+        }
+
+        function showSuggestions(input, suggestions) {
+            console.log('showSuggestions called with:', suggestions.length, 'suggestions');
+            const dropdown = document.getElementById('suggestionsDropdown');
+            
+            if (!dropdown) {
+                console.error('Dropdown element not found!');
+                return;
+            }
+            
+            if (suggestions.length === 0) {
+                console.log('No suggestions to show');
+                dropdown.style.display = 'none';
+                return;
+            }
+
+            // Clear previous content
+            dropdown.innerHTML = '';
+            
+            // Create suggestion elements with proper event listeners
+            suggestions.forEach((version, index) => {
+                const suggestionDiv = document.createElement('div');
+                suggestionDiv.className = 'suggestion-item';
+                suggestionDiv.setAttribute('data-index', index);
+                
+                const mainDiv = document.createElement('div');
+                mainDiv.className = 'suggestion-main';
+                mainDiv.textContent = version.name;
+                suggestionDiv.appendChild(mainDiv);
+                
+                if (version.description) {
+                    const descDiv = document.createElement('div');
+                    descDiv.className = 'suggestion-desc';
+                    descDiv.textContent = version.description;
+                    suggestionDiv.appendChild(descDiv);
+                }
+                
+                // Add click event listener
+                suggestionDiv.addEventListener('click', function() {
+                    console.log('Suggestion clicked:', version.name);
+                    selectSuggestion(version.name);
+                });
+                
+                dropdown.appendChild(suggestionDiv);
+            });
+            
+            dropdown.style.display = 'block';
+            currentHighlight = -1;
+            console.log('Dropdown shown with', suggestions.length, 'suggestions');
+        }
+
+        function hideSuggestions() {
+            setTimeout(() => {
+                document.getElementById('suggestionsDropdown').style.display = 'none';
+            }, 200);
+        }
+
+        function selectSuggestion(versionName) {
+            console.log('selectSuggestion called with:', versionName);
+            const input = document.getElementById('jqlInput');
+            const text = input.value;
+            
+            console.log('Current text:', text);
+            
+            // Look for fixVersion pattern and replace the value
+            const fixVersionRegex = /(fixVersion\s*=\s*)"([^"]*)"/gi;
+            
+            if (fixVersionRegex.test(text)) {
+                // Reset regex for actual replacement
+                const newText = text.replace(/(fixVersion\s*=\s*)"([^"]*)"/gi, `$1"${versionName}"`);
+                console.log('New text:', newText);
+                input.value = newText;
+            } else {
+                // If no fixVersion found, append to the end
+                const newText = text + ` AND fixVersion = "${versionName}"`;
+                console.log('Appending new text:', newText);
+                input.value = newText;
+            }
+            
+            input.focus();
+            document.getElementById('suggestionsDropdown').style.display = 'none';
+            console.log('Selection completed, final value:', input.value);
+        }
+
+        function filterSuggestions(query) {
+            console.log('filterSuggestions called with query:', query);
+            console.log('fixVersions array length:', fixVersions.length);
+            console.log('fixVersions array:', fixVersions);
+            if (!query || query.length < 2) {
+                console.log('Query too short, returning empty array');
+                return [];
+            }
+            
+            const lowercaseQuery = query.toLowerCase();
+            const filtered = fixVersions.filter(version => 
+                version.name.toLowerCase().includes(lowercaseQuery)
+            ).slice(0, 10);
+            console.log('Filtered suggestions:', filtered);
+            return filtered;
+        }
+
+        function highlightSuggestion(direction) {
+            const suggestions = document.querySelectorAll('.suggestion-item');
+            if (suggestions.length === 0) return;
+
+            // Remove current highlight
+            if (currentHighlight >= 0 && currentHighlight < suggestions.length) {
+                suggestions[currentHighlight].classList.remove('highlighted');
+            }
+
+            // Update highlight index
+            if (direction === 'down') {
+                currentHighlight = currentHighlight < suggestions.length - 1 ? currentHighlight + 1 : 0;
+            } else if (direction === 'up') {
+                currentHighlight = currentHighlight > 0 ? currentHighlight - 1 : suggestions.length - 1;
+            }
+
+            // Add new highlight
+            if (currentHighlight >= 0 && currentHighlight < suggestions.length) {
+                suggestions[currentHighlight].classList.add('highlighted');
+                suggestions[currentHighlight].scrollIntoView({ block: 'nearest' });
+            }
+        }
+
+        function selectHighlightedSuggestion() {
+            const highlighted = document.querySelector('.suggestion-item.highlighted');
+            if (highlighted) {
+                const versionName = highlighted.querySelector('.suggestion-main').textContent;
+                selectSuggestion(versionName);
+                return true;
+            }
+            return false;
+        }
+
+        // Event listeners for autocomplete
+        document.getElementById('jqlInput').addEventListener('input', function(e) {
+            console.log('Input event triggered, value:', e.target.value);
+            const input = e.target;
+            const cursorPos = input.selectionStart;
+            const text = input.value;
+            const beforeCursor = text.substring(0, cursorPos);
+            console.log('Text before cursor:', beforeCursor);
+            
+            // Check if we're typing after fixVersion =
+            const fixVersionMatch = beforeCursor.match(/fixVersion\s*=\s*"?([^"]*?)$/i);
+            console.log('Fix version match:', fixVersionMatch);
+            
+            if (fixVersionMatch) {
+                const query = fixVersionMatch[1];
+                console.log('Autocomplete query:', query);
+                const suggestions = filterSuggestions(query);
+                console.log('Filtered suggestions:', suggestions);
+                showSuggestions(input, suggestions);
+            } else {
+                console.log('No fix version match, hiding suggestions');
+                hideSuggestions();
+            }
+        });
+
+        document.getElementById('jqlInput').addEventListener('keydown', function(e) {
+            const dropdown = document.getElementById('suggestionsDropdown');
+            
+            if (dropdown.style.display === 'block') {
+                switch(e.key) {
+                    case 'ArrowDown':
+                        e.preventDefault();
+                        highlightSuggestion('down');
+                        break;
+                    case 'ArrowUp':
+                        e.preventDefault();
+                        highlightSuggestion('up');
+                        break;
+                    case 'Enter':
+                        if (selectHighlightedSuggestion()) {
+                            e.preventDefault();
+                        } else {
+                            searchJira();
+                        }
+                        break;
+                    case 'Escape':
+                        hideSuggestions();
+                        break;
+                }
+            } else if (e.key === 'Enter') {
+                searchJira();
+            }
+        });
+
+        document.getElementById('jqlInput').addEventListener('blur', hideSuggestions);
+
+        async function fetchEpicDetails(epicKey) {
+            console.log('fetchEpicDetails called for:', epicKey);
+            try {
+                // Fetch epic details using individual issue endpoint
+                console.log('Making API request to:', `http://localhost:3000/issue/${epicKey}`);
+                const response = await fetch(`http://localhost:3000/issue/${epicKey}`);
+                console.log('API response status:', response.status);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const epic = await response.json();
+                console.log('Received epic data:', epic);
+                
+                if (epic && epic.fields) {
+                    const detailsDiv = document.getElementById(`epic-details-${epicKey}`);
+                    
+                    // Extract description from rendered fields first, then regular fields
+                    let description = null;
+                    if (epic.renderedFields && epic.renderedFields.description) {
+                        description = epic.renderedFields.description;
+                    } else if (epic.fields.description) {
+                        description = epic.fields.description;
+                    } else {
+                        description = 'No description available';
+                    }
+                    
+                    // Try to get acceptance criteria from customfield_10056 for epics too
+                    let acceptanceCriteria = null;
+                    const acField = 'customfield_10056';
+                    
+                    // First try rendered fields for best content
+                    if (epic.renderedFields && epic.renderedFields[acField]) {
+                        console.log(`Found rendered acceptance criteria in ${acField}:`, epic.renderedFields[acField]);
+                        acceptanceCriteria = epic.renderedFields[acField];
+                    }
+                    // Then try regular fields
+                    else if (epic.fields && epic.fields[acField]) {
+                        console.log(`Found acceptance criteria in ${acField}:`, epic.fields[acField]);
+                        acceptanceCriteria = epic.fields[acField];
+                    }
+                    
+                    if (!acceptanceCriteria) {
+                        acceptanceCriteria = 'No high level acceptance criteria defined for this feature';
+                        console.log(`No acceptance criteria found in ${acField} for epic ${epicKey}`);
+                    }
+                    
+                    // Get reporter and assignee emails for potential email notifications
+                    const reporterEmail = epic.fields.reporter ? epic.fields.reporter.emailAddress : null;
+                    const assigneeEmail = epic.fields.assignee ? epic.fields.assignee.emailAddress : null;
+                    
+                    // Format description and acceptance criteria with email button support
+                    const formattedDescription = formatDescription(description, epicKey, reporterEmail, assigneeEmail);
+                    const formattedAcceptanceCriteria = formatAcceptanceCriteria(acceptanceCriteria, epicKey, reporterEmail, assigneeEmail);
+                    
+                    // Display the epic details in a compact format suitable for the Details of Feature section
+                    detailsDiv.innerHTML = `
+                        <div style="background: white; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden;">
+                            <!-- Status and Assignee Row -->
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0;">
+                                <!-- Status -->
+                                <div style="padding: 15px; border-right: 1px solid #e5e7eb;">
+                                    <div style="display: flex; align-items: center; margin-bottom: 8px;">
+                                        <i class="fas fa-info-circle" style="color: #3182ce; margin-right: 8px; font-size: 14px;"></i>
+                                        <strong style="color: #1f2937; font-size: 14px;">Status</strong>
+                                    </div>
+                                    <div style="display: flex; align-items: center;">
+                                        <span style="background: #f0f9ff; color: #1e40af; padding: 6px 12px; border-radius: 6px; font-weight: 600; font-size: 13px;">
+                                            ${epic.fields.status ? epic.fields.status.name : 'Unknown'}
+                                        </span>
+                                    </div>
+                                </div>
+                                
+                                <!-- Assignee -->
+                                <div style="padding: 15px;">
+                                    <div style="display: flex; align-items: center; margin-bottom: 8px;">
+                                        <i class="fas fa-user" style="color: #8b5cf6; margin-right: 8px; font-size: 14px;"></i>
+                                        <strong style="color: #1f2937; font-size: 14px;">Assignee</strong>
+                                    </div>
+                                    <div style="display: flex; align-items: center;">
+                                        ${epic.fields.assignee ? `
+                                        <div style="display: flex; align-items: center;">
+                                            ${epic.fields.assignee.avatarUrls && epic.fields.assignee.avatarUrls['24x24'] ? `
+                                            <img src="${epic.fields.assignee.avatarUrls['24x24']}" alt="${epic.fields.assignee.displayName}" style="width: 24px; height: 24px; border-radius: 50%; margin-right: 8px;">
+                                            ` : `
+                                            <div style="width: 24px; height: 24px; border-radius: 50%; background: #e5e7eb; display: flex; align-items: center; justify-content: center; margin-right: 8px;">
+                                                <i class="fas fa-user" style="color: #6b7280; font-size: 10px;"></i>
+                                            </div>
+                                            `}
+                                            <div>
+                                                <div style="font-weight: 600; color: #1f2937; font-size: 13px;">${epic.fields.assignee.displayName}</div>
+                                            </div>
+                                        </div>
+                                        ` : `
+                                        <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+                                            <div style="display: flex; align-items: center; color: #6b7280;">
+                                                <div style="width: 24px; height: 24px; border-radius: 50%; background: #f3f4f6; display: flex; align-items: center; justify-content: center; margin-right: 8px;">
+                                                    <i class="fas fa-user-slash" style="color: #9ca3af; font-size: 10px;"></i>
+                                                </div>
+                                                <span style="font-style: italic; font-size: 13px;">Unassigned</span>
+                                            </div>
+                                            ${reporterEmail ? createEmailButton(epicKey, reporterEmail, 'assignee') : ''}
+                                        </div>
+                                        `}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div style="margin-top: 10px; font-size: 11px; color: #9ca3af; text-align: center;">
+                            <strong>Epic:</strong> ${epic.key} | <strong>Type:</strong> ${epic.fields.issuetype ? epic.fields.issuetype.name : 'Unknown'}
+                            ${reporterEmail ? ` | <strong>Reporter:</strong> ${epic.fields.reporter.displayName} (${reporterEmail})` : ''}
+                        </div>
+                    `;
+                    
+                    // Enhanced debug logging for epic
+                    console.log(`Epic ${epicKey} - customfield_10056 analysis:`, {
+                        raw_value: epic.fields.customfield_10056,
+                        rendered_value: epic.renderedFields?.customfield_10056,
+                        raw_type: typeof epic.fields.customfield_10056,
+                        rendered_type: typeof epic.renderedFields?.customfield_10056,
+                        status: epic.fields.status,
+                        assignee: epic.fields.assignee,
+                        description: epic.fields.description ? 'Present' : 'Missing'
+                    });
+                    console.log(`Epic ${epicKey} - Final acceptance criteria selected:`, acceptanceCriteria);
+                } else {
+                    throw new Error('No epic data received');
+                }
+            } catch (error) {
+                console.error('Error in fetchEpicDetails:', error);
+                throw error;
+            }
+        }
+
+        // Story details functionality - declare at global scope  
+        async function toggleStoryDetails(storyKey) {
+            console.log('toggleStoryDetails called with storyKey:', storyKey);
+            const detailsDiv = document.getElementById(`details-${storyKey}`);
+            const button = document.getElementById(`btn-${storyKey}`);
+            console.log('Found elements:', { detailsDiv, button });
+            
+            if (!detailsDiv || !button) {
+                console.error('Could not find required elements for story:', storyKey);
+                return;
+            }
+            
+            const icon = button.querySelector('i');
+            console.log('Current display style:', detailsDiv.style.display);
+            
+            if (detailsDiv.style.display === 'none' || detailsDiv.style.display === '') {
+                // Show details
+                console.log('Showing details for story:', storyKey);
+                detailsDiv.style.display = 'block';
+                icon.classList.remove('fa-plus');
+                icon.classList.add('fa-minus');
+                button.innerHTML = '<i class="fas fa-minus"></i> Hide';
+                
+                // Check if we need to fetch the story details
+                console.log('Current details content:', detailsDiv.innerHTML);
+                if (detailsDiv.innerHTML.includes('Loading story details...')) {
+                    console.log('Fetching story details for:', storyKey);
+                    try {
+                        await fetchStoryDetails(storyKey);
+                    } catch (error) {
+                        console.error('Error fetching story details:', error);
+                        detailsDiv.innerHTML = `
+                            <div style="color: #dc2626; padding: 10px;">
+                                <i class="fas fa-exclamation-triangle"></i> 
+                                Failed to load story details: ${error.message}
+                            </div>
+                        `;
+                    }
+                }
+            } else {
+                // Hide details
+                detailsDiv.style.display = 'none';
+                icon.classList.remove('fa-minus');
+                icon.classList.add('fa-plus');
+                button.innerHTML = '<i class="fas fa-plus"></i> Details';
+            }
+        }
+
+        async function fetchStoryDetails(storyKey) {
+            console.log('fetchStoryDetails called for:', storyKey);
+            try {
+                // Fetch story details using individual issue endpoint
+                console.log('Making API request to:', `http://localhost:3000/issue/${storyKey}`);
+                const response = await fetch(`http://localhost:3000/issue/${storyKey}`);
+                console.log('API response status:', response.status);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const story = await response.json();
+                console.log('Received story data:', story);
+                
+                if (story && story.fields) {
+                    const detailsDiv = document.getElementById(`details-${storyKey}`);
+                    
+                    // Extract description from rendered fields first, then regular fields
+                    let description = null;
+                    if (story.renderedFields && story.renderedFields.description) {
+                        description = story.renderedFields.description;
+                    } else if (story.fields.description) {
+                        description = story.fields.description;
+                    } else {
+                        description = 'No description available';
+                    }
+                    
+                    // Use customfield_10056 specifically for High Level Acceptance Criteria
+                    let acceptanceCriteria = null;
+                    const acField = 'customfield_10056'; // EXACT field for High Level Acceptance Criteria
+                    
+                    // First try rendered fields for best content
+                    if (story.renderedFields && story.renderedFields[acField]) {
+                        console.log(`Found rendered acceptance criteria in ${acField}:`, story.renderedFields[acField]);
+                        acceptanceCriteria = story.renderedFields[acField];
+                    }
+                    // Then try regular fields
+                    else if (story.fields && story.fields[acField]) {
+                        console.log(`Found acceptance criteria in ${acField}:`, story.fields[acField]);
+                        acceptanceCriteria = story.fields[acField];
+                    }
+                    
+                    if (!acceptanceCriteria) {
+                        acceptanceCriteria = 'No acceptance criteria defined';
+                        console.log(`No acceptance criteria found in ${acField} for story ${storyKey}`);
+                    }
+                    
+                    // Get reporter and assignee emails for potential email notifications
+                    const reporterEmail = story.fields.reporter ? story.fields.reporter.emailAddress : null;
+                    const assigneeEmail = story.fields.assignee ? story.fields.assignee.emailAddress : null;
+                    
+                    // Format description and acceptance criteria with email button support
+                    const formattedDescription = formatDescription(description, storyKey, reporterEmail, assigneeEmail);
+                    const formattedAcceptanceCriteria = formatAcceptanceCriteria(acceptanceCriteria, storyKey, reporterEmail, assigneeEmail);
+                    
+                    // Display the details
+                    detailsDiv.innerHTML = `
+                        <div style="margin-bottom: 15px;">
+                            <h4 style="margin: 0 0 8px 0; color: #1f2937; font-size: 14px;">
+                                <i class="fas fa-file-alt" style="color: #f59e0b; margin-right: 6px;"></i>
+                                Description
+                            </h4>
+                            <div style="background: white; padding: 10px; border-radius: 6px; font-size: 13px; line-height: 1.5; color: #4b5563;">
+                                ${formattedDescription.content}
+                                ${formattedDescription.isEmpty ? createEmailButton(storyKey, reporterEmail, 'Description') : ''}
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <h4 style="margin: 0 0 8px 0; color: #1f2937; font-size: 14px;">
+                                <i class="fas fa-check-circle" style="color: #22c55e; margin-right: 6px;"></i>
+                                High Level Acceptance Criteria
+                            </h4>
+                            <div style="background: white; padding: 10px; border-radius: 6px; font-size: 13px; line-height: 1.5; color: #4b5563;">
+                                ${formattedAcceptanceCriteria.content}
+                                ${formattedAcceptanceCriteria.isEmpty ? createEmailButton(storyKey, reporterEmail, 'High Level Acceptance Criteria') : ''}
+                            </div>
+                        </div>
+                        
+                        <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #e5e7eb; font-size: 12px; color: #6b7280;">
+                            <strong>Status:</strong> ${story.fields.status ? story.fields.status.name : 'Unknown'} | 
+                            <strong>Assignee:</strong> ${story.fields.assignee ? story.fields.assignee.displayName : 'Unassigned'} |
+                            <strong>Issue Type:</strong> ${story.fields.issuetype ? story.fields.issuetype.name : 'Unknown'}
+                            ${reporterEmail ? ` | <strong>Reporter:</strong> ${story.fields.reporter.displayName} (${reporterEmail})` : ''}
+                        </div>
+                        
+                        <div style="margin-top: 8px; font-size: 11px; color: #9ca3af;">
+                            <strong>Debug:</strong> Check console for field details
+                        </div>
+                    `;
+                    
+                    // Enhanced debug logging for customfield_10056
+                    console.log(`Story ${storyKey} - customfield_10056 analysis:`, {
+                        raw_value: story.fields.customfield_10056,
+                        rendered_value: story.renderedFields?.customfield_10056,
+                        raw_type: typeof story.fields.customfield_10056,
+                        rendered_type: typeof story.renderedFields?.customfield_10056,
+                        raw_keys: story.fields.customfield_10056 && typeof story.fields.customfield_10056 === 'object' ? Object.keys(story.fields.customfield_10056) : 'not an object',
+                        rendered_keys: story.renderedFields?.customfield_10056 && typeof story.renderedFields.customfield_10056 === 'object' ? Object.keys(story.renderedFields.customfield_10056) : 'not an object'
+                    });
+                    console.log(`Story ${storyKey} - Final acceptance criteria selected:`, acceptanceCriteria);
+                } else {
+                    throw new Error('No story data received');
+                }
+            } catch (error) {
+                console.error('Error in fetchStoryDetails:', error);
+                throw error;
+            }
+        }
+
+        function formatDescription(description, issueKey, reporterEmail, assigneeEmail) {
+            if (!description || description === 'No description available') {
+                return {
+                    content: `<div style="display: flex; justify-content: space-between; align-items: center;">
+                        <em style="color: #9ca3af;">No description provided for this story.</em>
+                        ${assigneeEmail ? createEmailButton(issueKey, assigneeEmail, 'description') : ''}
+                    </div>`,
+                    isEmpty: true,
+                    issueKey: issueKey,
+                    reporterEmail: reporterEmail,
+                    assigneeEmail: assigneeEmail
+                };
+            }
+            
+            // Handle JIRA ADF format or plain text
+            let formattedContent = '';
+            if (typeof description === 'object' && description !== null) {
+                if (description.content) {
+                    // JIRA Atlassian Document Format
+                    formattedContent = extractTextFromADF(description);
+                } else {
+                    // Try to extract any meaningful content
+                    formattedContent = `<pre style="background: #f3f4f6; padding: 8px; border-radius: 4px;">${JSON.stringify(description, null, 2)}</pre>`;
+                }
+            } else if (typeof description === 'string') {
+                // Plain text with basic formatting
+                formattedContent = description.replace(/\n/g, '<br>');
+                formattedContent = formattedContent.replace(/\*([^*]+)\*/g, '<strong>$1</strong>');
+                formattedContent = formattedContent.replace(/_([^_]+)_/g, '<em>$1</em>');
+            } else {
+                formattedContent = String(description);
+            }
+            
+            return {
+                content: formattedContent,
+                isEmpty: false,
+                issueKey: issueKey,
+                reporterEmail: reporterEmail,
+                assigneeEmail: assigneeEmail
+            };
+        }
+
+        function formatAcceptanceCriteria(criteria, issueKey, reporterEmail, assigneeEmail) {
+            console.log('formatAcceptanceCriteria called with:', criteria);
+            console.log('Type:', typeof criteria);
+            console.log('Full object structure:', JSON.stringify(criteria, null, 2));
+            
+            if (!criteria || criteria === 'No acceptance criteria defined' || criteria === 'No high level acceptance criteria defined for this feature') {
+                return {
+                    content: `<div style="display: flex; justify-content: space-between; align-items: center;">
+                        <em style="color: #9ca3af;">No high level acceptance criteria defined for this story.</em>
+                        ${assigneeEmail ? createEmailButton(issueKey, assigneeEmail, 'acceptance criteria') : ''}
+                    </div>`,
+                    isEmpty: true,
+                    issueKey: issueKey,
+                    reporterEmail: reporterEmail,
+                    assigneeEmail: assigneeEmail
+                };
+            }
+            
+            // If it's already HTML (from rendered fields), use it directly
+            if (typeof criteria === 'string' && (criteria.includes('<') || criteria.length > 10)) {
+                console.log('Using HTML rendered content or long string');
+                let formatted = criteria.replace(/\n/g, '<br>');
+                formatted = formatted.replace(/\*([^*]+)\*/g, '<strong>$1</strong>');
+                
+                // Format as bullet points if not already formatted
+                if (!formatted.includes('•') && !formatted.includes('<li>') && !formatted.includes('*') && !formatted.includes('-')) {
+                    const lines = formatted.split('<br>').filter(line => line.trim());
+                    if (lines.length > 1) {
+                        formatted = lines.map(line => `• ${line.trim()}`).join('<br>');
+                    }
+                }
+                return {
+                    content: formatted,
+                    isEmpty: false,
+                    issueKey: issueKey,
+                    reporterEmail: reporterEmail,
+                    assigneeEmail: assigneeEmail
+                };
+            }
+            
+            // Handle string content
+            if (typeof criteria === 'string') {
+                console.log('Processing string criteria');
+                let formatted = criteria.replace(/\n/g, '<br>');
+                formatted = formatted.replace(/\*([^*]+)\*/g, '<strong>$1</strong>');
+                return {
+                    content: formatted,
+                    isEmpty: false,
+                    issueKey: issueKey,
+                    reporterEmail: reporterEmail,
+                    assigneeEmail: assigneeEmail
+                };
+            }
+            
+            // Handle array content
+            if (Array.isArray(criteria)) {
+                console.log('Processing array of criteria');
+                const content = criteria.map(item => {
+                    if (typeof item === 'string') {
+                        return `• ${item}`;
+                    } else if (typeof item === 'object' && item !== null) {
+                        return `• ${extractTextFromObject(item)}`;
+                    }
+                    return `• ${String(item)}`;
+                }).join('<br>');
+                return {
+                    content: content,
+                    isEmpty: false,
+                    issueKey: issueKey,
+                    reporterEmail: reporterEmail,
+                    assigneeEmail: assigneeEmail
+                };
+            }
+            
+            // Handle object content - Enhanced for customfield_10056
+            if (typeof criteria === 'object' && criteria !== null) {
+                console.log('Processing object criteria. Keys:', Object.keys(criteria));
+                console.log('Detailed object analysis:', criteria);
+                
+                // Handle JIRA Atlassian Document Format (ADF)
+                if (criteria.content) {
+                    console.log('Found ADF content structure');
+                    const content = extractTextFromADF(criteria);
+                    return {
+                        content: content,
+                        isEmpty: false,
+                        issueKey: issueKey,
+                        reporterEmail: reporterEmail,
+                        assigneeEmail: assigneeEmail
+                    };
+                }
+                
+                // Enhanced text extraction for customfield_10056 objects
+                const textExtractionResult = extractTextFromCustomField10056(criteria);
+                if (textExtractionResult && textExtractionResult !== 'No content found') {
+                    console.log('Successfully extracted text from customfield_10056:', textExtractionResult);
+                    return {
+                        content: textExtractionResult,
+                        isEmpty: false,
+                        issueKey: issueKey,
+                        reporterEmail: reporterEmail,
+                        assigneeEmail: assigneeEmail
+                    };
+                }
+                
+                // Fallback: Show detailed object info for debugging
+                return {
+                    content: `<div style="background: #fef3c7; padding: 12px; border-radius: 6px; border-left: 4px solid #f59e0b;">
+                        <strong>⚠ customfield_10056 Object Analysis:</strong><br>
+                        <div style="margin-top: 8px;">
+                            <strong>Object Type:</strong> ${Array.isArray(criteria) ? 'Array' : 'Object'}<br>
+                            <strong>Properties:</strong> ${Object.keys(criteria).join(', ')}<br>
+                            ${criteria.id ? `<strong>ID:</strong> ${criteria.id}<br>` : ''}
+                            ${criteria.value ? `<strong>Value:</strong> ${criteria.value}<br>` : ''}
+                            ${criteria.name ? `<strong>Name:</strong> ${criteria.name}<br>` : ''}
+                            ${criteria.displayName ? `<strong>Display Name:</strong> ${criteria.displayName}<br>` : ''}
+                        </div>
+                        <details style="margin-top: 10px;">
+                            <summary style="cursor: pointer; color: #92400e; font-weight: 500;">Show Complete Object Structure</summary>
+                            <pre style="background: #f9fafb; padding: 10px; border-radius: 4px; margin-top: 6px; font-size: 11px; max-height: 300px; overflow-y: auto; border: 1px solid #e5e7eb;">${JSON.stringify(criteria, null, 2)}</pre>
+                        </details>
+                    </div>`,
+                    isEmpty: false,
+                    issueKey: issueKey,
+                    reporterEmail: reporterEmail,
+                    assigneeEmail: assigneeEmail
+                };
+            }
+            
+            console.log('Fallback: converting to string');
+            return {
+                content: String(criteria),
+                isEmpty: false,
+                issueKey: issueKey,
+                reporterEmail: reporterEmail,
+                assigneeEmail: assigneeEmail
+            };
+        }
+
+        function createEmailButton(issueKey, recipientEmail, fieldType) {
+            if (!recipientEmail) {
+                return '';
+            }
+            
+            // Determine recipient type based on field type
+            const isForAssignee = (fieldType === 'description' || fieldType === 'acceptance criteria');
+            const recipientType = isForAssignee ? 'Assignee' : 'Reporter';
+            const functionName = isForAssignee ? 'sendEmailToAssignee' : 'sendEmailToReporter';
+            
+            return `
+                <div style="margin-top: 8px; text-align: right;">
+                    <button onclick="${functionName}('${issueKey}', '${recipientEmail}', '${fieldType}')" 
+                            style="
+                                background: #dc2626; 
+                                color: white; 
+                                border: none; 
+                                padding: 6px 12px; 
+                                border-radius: 4px; 
+                                font-size: 12px; 
+                                cursor: pointer; 
+                                transition: all 0.2s ease;
+                                display: flex;
+                                align-items: center;
+                                gap: 6px;
+                                margin-left: auto;
+                            " 
+                            onmouseover="this.style.backgroundColor='#b91c1c';" 
+                            onmouseout="this.style.backgroundColor='#dc2626';"
+                            title="Send email to ${recipientType.toLowerCase()} to fill missing ${fieldType}">
+                        <i class="fas fa-envelope"></i>
+                        <span>Email ${recipientType}</span>
+                    </button>
+                </div>
+            `;
+        }
+
+        function sendEmailToReporter(issueKey, reporterEmail, fieldType) {
+            let fieldDisplayName, fieldDescription, actionText;
+            
+            switch(fieldType) {
+                case 'description':
+                    fieldDisplayName = 'Description';
+                    fieldDescription = 'description field';
+                    actionText = 'Please provide a detailed description of the issue';
+                    break;
+                case 'acceptance criteria':
+                    fieldDisplayName = 'High Level Acceptance Criteria';
+                    fieldDescription = 'acceptance criteria field';
+                    actionText = 'Please define the acceptance criteria for this issue';
+                    break;
+                case 'assignee':
+                    fieldDisplayName = 'Assignee';
+                    fieldDescription = 'assignee field';
+                    actionText = 'Please assign this issue to the appropriate team member';
+                    break;
+                default:
+                    fieldDisplayName = fieldType.charAt(0).toUpperCase() + fieldType.slice(1);
+                    fieldDescription = `${fieldType} field`;
+                    actionText = `Please fill in the ${fieldType} field`;
+            }
+            
+            const subject = `Action Required: Missing ${fieldDisplayName} for ${issueKey}`;
+            const body = `Dear Team Member,
+
+I hope this email finds you well.
+
+I noticed that the ${fieldDescription} is empty for the following JIRA issue:
+
+Issue: ${issueKey}
+Field Missing: ${fieldDisplayName}
+
+The ${fieldDescription} is empty or none. ${actionText}.
+
+Could you please take a moment to update the issue? This information is important for proper project tracking and requirements clarity.
+
+To update the issue:
+1. Open the JIRA issue: ${issueKey}
+2. Edit the issue
+3. ${actionText}
+4. Save your changes
+
+Thank you for your attention to this matter.
+
+Best regards,
+Project Team`;
+
+            const mailtoLink = `mailto:${reporterEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+            
+            try {
+                window.open(mailtoLink, '_blank');
+            } catch (error) {
+                console.error('Error opening email client:', error);
+                // Fallback: copy to clipboard
+                navigator.clipboard.writeText(`To: ${reporterEmail}\nSubject: ${subject}\n\n${body}`).then(() => {
+                    alert('Email content copied to clipboard. Please paste it in your email client.');
+                }).catch(() => {
+                    alert(`Please send an email to: ${reporterEmail}\nSubject: ${subject}`);
+                });
+            }
+        }
+
+        function sendEmailToAssignee(issueKey, assigneeEmail, fieldType) {
+            let fieldDisplayName, fieldDescription, actionText;
+            
+            switch(fieldType) {
+                case 'description':
+                    fieldDisplayName = 'Description';
+                    fieldDescription = 'description field';
+                    actionText = 'Please provide a detailed description of the issue';
+                    break;
+                case 'acceptance criteria':
+                    fieldDisplayName = 'High Level Acceptance Criteria';
+                    fieldDescription = 'acceptance criteria field';
+                    actionText = 'Please define the acceptance criteria for this issue';
+                    break;
+                default:
+                    fieldDisplayName = fieldType.charAt(0).toUpperCase() + fieldType.slice(1);
+                    fieldDescription = `${fieldType} field`;
+                    actionText = `Please fill in the ${fieldType} field`;
+            }
+            
+            const subject = `Action Required: Missing ${fieldDisplayName} for ${issueKey}`;
+            const body = `Dear Assignee,
+
+I hope this email finds you well.
+
+I noticed that the ${fieldDescription} is empty for the following JIRA issue assigned to you:
+
+Issue: ${issueKey}
+Field Missing: ${fieldDisplayName}
+
+The ${fieldDescription} is empty or none. ${actionText}.
+
+As the assignee of this issue, could you please take a moment to update the missing information? This is important for proper project tracking and requirements clarity.
+
+To update the issue:
+1. Open the JIRA issue: ${issueKey}
+2. Edit the issue
+3. ${actionText}
+4. Save your changes
+
+Thank you for your attention to this matter.
+
+Best regards,
+Project Team`;
+
+            const mailtoLink = `mailto:${assigneeEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+            
+            try {
+                window.open(mailtoLink, '_blank');
+            } catch (error) {
+                console.error('Error opening email client:', error);
+                // Fallback: copy to clipboard
+                navigator.clipboard.writeText(`To: ${assigneeEmail}\nSubject: ${subject}\n\n${body}`).then(() => {
+                    alert('Email content copied to clipboard. Please paste it in your email client.');
+                }).catch(() => {
+                    alert(`Please send an email to: ${assigneeEmail}\nSubject: ${subject}`);
+                });
+            }
+        }
+
+        function extractTextFromCustomField10056(obj) {
+            console.log('extractTextFromCustomField10056 called with:', obj);
+            
+            if (!obj || typeof obj !== 'object') {
+                return String(obj || '');
+            }
+            
+            // Priority order for text extraction from customfield_10056
+            const textProperties = [
+                'value',          // Most common for select/text fields
+                'name',           // For option objects
+                'displayName',    // For user/option objects  
+                'text',           // For text content
+                'summary',        // For summary content
+                'description',    // For description content
+                'content'         // For rich text content
+            ];
+            
+            // Check direct properties first
+            for (const prop of textProperties) {
+                if (obj[prop] !== undefined && obj[prop] !== null) {
+                    const value = obj[prop];
+                    console.log(`Found property ${prop} with value:`, value, 'type:', typeof value);
+                    
+                    if (typeof value === 'string' && value.trim().length > 0) {
+                        const content = value.trim();
+                        console.log(`Extracted text from ${prop}:`, content);
+                        
+                        // Format as bullet points if multiple lines
+                        const lines = content.split('\n').filter(line => line.trim());
+                        if (lines.length > 1) {
+                            return lines.map(line => `• ${line.trim()}`).join('<br>');
+                        }
+                        return content;
+                    }
+                    
+                    // Handle nested objects
+                    if (typeof value === 'object' && value !== null) {
+                        console.log(`Found nested object in ${prop}, recursing...`);
+                        const nestedResult = extractTextFromCustomField10056(value);
+                        if (nestedResult && nestedResult !== 'No content found') {
+                            return nestedResult;
+                        }
+                    }
+                }
+            }
+            
+            // Check for array content
+            if (Array.isArray(obj)) {
+                console.log('Processing array content');
+                const textItems = [];
+                for (const item of obj) {
+                    if (typeof item === 'string' && item.trim().length > 0) {
+                        textItems.push(item.trim());
+                    } else if (typeof item === 'object' && item !== null) {
+                        const itemText = extractTextFromCustomField10056(item);
+                        if (itemText && itemText !== 'No content found') {
+                            textItems.push(itemText);
+                        }
+                    }
+                }
+                if (textItems.length > 0) {
+                    return textItems.map(item => `• ${item}`).join('<br>');
+                }
+            }
+            
+            // Check nested common structures for JIRA objects
+            const nestedPaths = [
+                ['child', 'value'],
+                ['option', 'value'], 
+                ['option', 'name'],
+                ['user', 'displayName'],
+                ['project', 'name'],
+                ['issuetype', 'name'],
+                ['status', 'name'],
+                ['priority', 'name'],
+                ['resolution', 'name'],
+                ['content', 'text'],
+                ['content', 'value']
+            ];
+            
+            for (const path of nestedPaths) {
+                let current = obj;
+                let pathFound = true;
+                
+                for (const segment of path) {
+                    if (current && typeof current === 'object' && current[segment] !== undefined) {
+                        current = current[segment];
+                    } else {
+                        pathFound = false;
+                        break;
+                    }
+                }
+                
+                if (pathFound && typeof current === 'string' && current.trim().length > 0) {
+                    console.log(`Found text at path ${path.join('.')}:`, current);
+                    const content = current.trim();
+                    const lines = content.split('\n').filter(line => line.trim());
+                    if (lines.length > 1) {
+                        return lines.map(line => `• ${line.trim()}`).join('<br>');
+                    }
+                    return content;
+                }
+            }
+            
+            // Special handling for JIRA Atlassian Document Format
+            if (obj.content && Array.isArray(obj.content)) {
+                console.log('Attempting ADF extraction...');
+                const adfResult = extractTextFromADF(obj);
+                if (adfResult !== 'Content format not fully supported') {
+                    return adfResult;
+                }
+            }
+            
+            // Deep search for any text content in the object
+            console.log('Performing deep text search...');
+            const allKeys = Object.keys(obj);
+            for (const key of allKeys) {
+                if (typeof obj[key] === 'string' && obj[key].trim().length > 3) {
+                    // Skip obvious non-content keys
+                    if (!['id', 'self', 'key', 'url', 'avatar'].includes(key.toLowerCase())) {
+                        console.log(`Found potential text content in ${key}:`, obj[key]);
+                        const content = obj[key].trim();
+                        const lines = content.split('\n').filter(line => line.trim());
+                        if (lines.length > 1) {
+                            return lines.map(line => `• ${line.trim()}`).join('<br>');
+                        }
+                        return content;
+                    }
+                }
+            }
+            
+            console.log('No text content found in customfield_10056 object');
+            return 'No content found';
+        }
+
+        function extractTextFromObject(obj) {
+            if (!obj || typeof obj !== 'object') {
+                return String(obj || '');
+            }
+            
+            // Check common text properties
+            const textProps = ['value', 'displayName', 'name', 'text', 'summary', 'description', 'content'];
+            for (const prop of textProps) {
+                if (obj[prop] && typeof obj[prop] === 'string' && obj[prop].trim().length > 0) {
+                    const content = String(obj[prop]);
+                    const lines = content.split('\n').filter(line => line.trim());
+                    if (lines.length > 1) {
+                        return lines.map(line => `• ${line.trim()}`).join('<br>');
+                    }
+                    return content;
+                }
+            }
+            
+            // Check for nested objects
+            for (const key of Object.keys(obj)) {
+                if (typeof obj[key] === 'object' && obj[key] !== null) {
+                    const nestedResult = extractTextFromObject(obj[key]);
+                    if (nestedResult && nestedResult !== 'No content found') {
+                        return nestedResult;
+                    }
+                }
+            }
+            
+            return 'No content found';
+        }
+
+        function extractTextFromADF(adfContent) {
+            // Basic ADF (Atlassian Document Format) text extraction
+            if (!adfContent || typeof adfContent !== 'object') {
+                return String(adfContent || 'No content');
+            }
+            
+            if (adfContent.content && Array.isArray(adfContent.content)) {
+                return adfContent.content.map(node => {
+                    return extractNodeText(node);
+                }).filter(text => text.trim()).join('<br><br>');
+            }
+            
+            return 'Content format not fully supported';
+        }
+
+        function extractNodeText(node) {
+            if (!node || typeof node !== 'object') {
+                return String(node || '');
+            }
+            
+            switch (node.type) {
+                case 'paragraph':
+                    if (node.content && Array.isArray(node.content)) {
+                        return node.content.map(textNode => {
+                            if (textNode.type === 'text') {
+                                return textNode.text || '';
+                            }
+                            return '';
+                        }).join('');
+                    }
+                    break;
+                case 'text':
+                    return node.text || '';
+                case 'bulletList':
+                case 'orderedList':
+                    if (node.content && Array.isArray(node.content)) {
+                        return node.content.map(listItem => {
+                            return `• ${extractNodeText(listItem)}`;
+                        }).join('<br>');
+                    }
+                    break;
+                case 'listItem':
+                    if (node.content && Array.isArray(node.content)) {
+                        return node.content.map(item => extractNodeText(item)).join(' ');
+                    }
+                    break;
+                default:
+                    if (node.content && Array.isArray(node.content)) {
+                        return node.content.map(child => extractNodeText(child)).join(' ');
+                    }
+                    return String(node.text || '');
+            }
+            
+            return '';
+        }
+
+        // Initialize with empty state and load fix versions
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('DOM fully loaded');
+            console.log('JQL Input element:', document.getElementById('jqlInput'));
+            console.log('Suggestions dropdown element:', document.getElementById('suggestionsDropdown'));
+            showEmptyState();
+            loadFixVersions();
+        });
+        
+        // Fallback for if DOMContentLoaded already fired
+        if (document.readyState === 'loading') {
+            // DOMContentLoaded will handle it
+        } else {
+            // DOM is already ready
+            console.log('DOM already ready');
+            console.log('JQL Input element:', document.getElementById('jqlInput'));
+            console.log('Suggestions dropdown element:', document.getElementById('suggestionsDropdown'));
+            showEmptyState();
+            loadFixVersions();
+        }
+        
+        // Add event delegation for story expand buttons
+        document.addEventListener('click', function(event) {
+            if (event.target.closest('.story-expand-btn')) {
+                const button = event.target.closest('.story-expand-btn');
+                const storyKey = button.getAttribute('data-story-key');
+                console.log('Button clicked for story:', storyKey);
+                if (storyKey) {
+                    toggleStoryDetails(storyKey);
+                }
+            }
+        });
+    </script>
+</body>
+</html>

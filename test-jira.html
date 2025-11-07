@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JIRA Connection Test</title>
+</head>
+<body>
+    <h2>JIRA Connection Test</h2>
+    <button id="testBtn">Test JIRA Connection</button>
+    <div id="result"></div>
+
+    <script>
+        document.getElementById('testBtn').addEventListener('click', async () => {
+            const resultDiv = document.getElementById('result');
+            const testBtn = document.getElementById('testBtn');
+            
+            testBtn.disabled = true;
+            testBtn.textContent = 'Testing...';
+            resultDiv.innerHTML = '<p>Testing connection...</p>';
+
+            try {
+                console.log('Testing JIRA connection...');
+                
+                const response = await fetch('http://localhost:3000/api/jira/search', {
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        jql: 'text ~ "test"',
+                        maxResults: 5,
+                        fields: ['summary', 'status', 'key']
+                    })
+                });
+
+                console.log('Response status:', response.status);
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('Response error:', errorText);
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
+                }
+
+                const data = await response.json();
+                console.log('JIRA Response:', data);
+
+                resultDiv.innerHTML = `
+                    <h3>✅ Connection Successful!</h3>
+                    <p><strong>Total Issues Found:</strong> ${data.total || 0}</p>
+                    <p><strong>Issues Returned:</strong> ${data.issues ? data.issues.length : 0}</p>
+                    ${data.issues && data.issues.length > 0 ? `
+                        <h4>Sample Issues:</h4>
+                        <ul>
+                            ${data.issues.slice(0, 3).map(issue => `
+                                <li><strong>${issue.key}:</strong> ${issue.fields.summary}</li>
+                            `).join('')}
+                        </ul>
+                    ` : '<p>No issues found for test query.</p>'}
+                `;
+
+            } catch (error) {
+                console.error('Connection test failed:', error);
+                resultDiv.innerHTML = `
+                    <h3>❌ Connection Failed</h3>
+                    <p><strong>Error:</strong> ${error.message}</p>
+                    <p><strong>Possible Solutions:</strong></p>
+                    <ul>
+                        <li>Make sure the proxy server is running (check console)</li>
+                        <li>Verify your JIRA credentials are correct</li>
+                        <li>Check if you have access to JIRA projects</li>
+                        <li>Try a different search term</li>
+                    </ul>
+                `;
+            } finally {
+                testBtn.disabled = false;
+                testBtn.textContent = 'Test JIRA Connection';
+            }
+        });
+    </script>
+</body>
+</html>

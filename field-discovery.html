@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JIRA Field Discovery Tool</title>
+</head>
+<body>
+    <h2>JIRA Benefit Hypothesis Field Discovery</h2>
+    
+    <div>
+        <label>Issue Key:</label>
+        <input type="text" id="issueKey" value="CTLF-38674" placeholder="Enter JIRA issue key">
+        <button onclick="discoverFields()">Discover Fields</button>
+    </div>
+    
+    <div id="results" style="margin-top: 20px;"></div>
+
+    <script>
+        async function discoverFields() {
+            const issueKey = document.getElementById('issueKey').value;
+            const resultsDiv = document.getElementById('results');
+            
+            if (!issueKey) {
+                alert('Please enter an issue key');
+                return;
+            }
+            
+            resultsDiv.innerHTML = '<p>Discovering fields...</p>';
+            
+            try {
+                // Get issue with all custom fields
+                const response = await fetch('http://localhost:3000/api/jira/search', {
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        jql: `key = "${issueKey}"`,
+                        maxResults: 1,
+                        fields: [
+                            'summary', 'description', 'issuelinks', 'subtasks', 'components', 'labels',
+                            'customfield_10000', 'customfield_10001', 'customfield_10002', 'customfield_10003',
+                            'customfield_10004', 'customfield_10005', 'customfield_10006', 'customfield_10007',
+                            'customfield_10008', 'customfield_10009', 'customfield_10010', 'customfield_10011',
+                            'customfield_10012', 'customfield_10013', 'customfield_10014', 'customfield_10015',
+                            'customfield_10016', 'customfield_10017', 'customfield_10018', 'customfield_10019',
+                            'customfield_10020', 'customfield_10021', 'customfield_10022', 'customfield_10023',
+                            'customfield_10024', 'customfield_10025', 'customfield_10026', 'customfield_10027',
+                            'customfield_10028', 'customfield_10029', 'customfield_10030'
+                        ]
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                const data = await response.json();
+                const issue = data.issues[0];
+
+                if (!issue) {
+                    resultsDiv.innerHTML = `<p style="color: red;">Issue ${issueKey} not found.</p>`;
+                    return;
+                }
+
+                // Display all custom fields with content
+                let html = `<h3>Field Discovery Results for ${issueKey}</h3>`;
+                html += `<p><strong>Summary:</strong> ${issue.fields.summary}</p>`;
+                
+                const customFields = Object.keys(issue.fields).filter(key => key.startsWith('customfield_'));
+                
+                html += '<h4>Custom Fields with Content:</h4>';
+                
+                let benefitHypothesisFound = false;
+                
+                for (const fieldId of customFields) {
+                    const fieldValue = issue.fields[fieldId];
+                    if (fieldValue) {
+                        let textValue = extractFieldValue(fieldValue);
+                        if (textValue && textValue.trim()) {
+                            const isBenefitHypothesis = textValue.toLowerCase().includes('enabler:') || 
+                                textValue.toLowerCase().includes('opex reduction') ||
+                                (textValue.toLowerCase().includes('ability') && textValue.toLowerCase().includes('drive'));
+                            
+                            if (isBenefitHypothesis) {
+                                benefitHypothesisFound = true;
+                                html += `<div style="background: #d4edda; border: 2px solid #28a745; padding: 15px; margin: 10px 0; border-radius: 5px;">`;
+                                html += `<h5 style="color: #155724; margin: 0 0 10px 0;">🎯 BENEFIT HYPOTHESIS FOUND!</h5>`;
+                                html += `<p><strong>Field ID:</strong> <code>${fieldId}</code></p>`;
+                                html += `<p><strong>Content:</strong></p>`;
+                                html += `<div style="background: white; padding: 10px; border-radius: 3px; font-family: monospace;">${textValue}</div>`;
+                                html += `</div>`;
+                            } else {
+                                html += `<div style="background: #f8f9fa; border: 1px solid #dee2e6; padding: 10px; margin: 5px 0; border-radius: 3px;">`;
+                                html += `<p><strong>${fieldId}:</strong></p>`;
+                                html += `<p style="font-size: 12px; color: #666; font-family: monospace;">${textValue.substring(0, 200)}${textValue.length > 200 ? '...' : ''}</p>`;
+                                html += `</div>`;
+                            }
+                        }
+                    }
+                }
+                
+                if (!benefitHypothesisFound) {
+                    html += '<div style="background: #fff3cd; border: 1px solid #ffc107; padding: 15px; margin: 10px 0; border-radius: 5px;">';
+                    html += '<p><strong>⚠️ Benefit Hypothesis field not automatically detected.</strong></p>';
+                    html += '<p>Please review the fields above and identify which one contains the Benefit Hypothesis content.</p>';
+                    html += '</div>';
+                }
+                
+                resultsDiv.innerHTML = html;
+
+            } catch (error) {
+                resultsDiv.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+                console.error('Discovery error:', error);
+            }
+        }
+
+        function extractFieldValue(fieldValue) {
+            if (typeof fieldValue === 'string') {
+                return fieldValue.trim();
+            } else if (typeof fieldValue === 'object') {
+                if (fieldValue.content) {
+                    // ADF format - simple text extraction
+                    return extractTextFromADF(fieldValue);
+                } else if (fieldValue.value) {
+                    return typeof fieldValue.value === 'string' ? fieldValue.value.trim() : fieldValue.value;
+                } else if (fieldValue.displayName) {
+                    return fieldValue.displayName.trim();
+                }
+            } else if (Array.isArray(fieldValue) && fieldValue.length > 0) {
+                if (fieldValue[0].value) {
+                    return fieldValue[0].value;
+                } else if (fieldValue[0].displayName) {
+                    return fieldValue[0].displayName;
+                }
+            }
+            return null;
+        }
+
+        function extractTextFromADF(adfContent) {
+            if (!adfContent || !adfContent.content) return '';
+            
+            let text = '';
+            
+            function extractText(node) {
+                if (node.type === 'text' && node.text) {
+                    text += node.text;
+                } else if (node.content && Array.isArray(node.content)) {
+                    node.content.forEach(extractText);
+                }
+            }
+            
+            if (Array.isArray(adfContent.content)) {
+                adfContent.content.forEach(extractText);
+            }
+            
+            return text.trim();
+        }
+    </script>
+</body>
+</html>

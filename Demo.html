@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JIRA Dashboard - Authentication</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #0f1419 0%, #1a2332 50%, #2c5282 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            color: #333;
+        }
+
+        .container {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+            width: 100%;
+            max-width: 450px;
+            padding: 40px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .logo {
+            text-align: center;
+            margin-bottom: 30px;
+            position: relative;
+        }
+
+        .logo h1 {
+            color: #1a202c;
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .logo .icon {
+            color: #3182ce;
+        }
+
+
+
+        .form-toggle {
+            display: flex;
+            margin-bottom: 30px;
+            background: #f7fafc;
+            border-radius: 12px;
+            padding: 4px;
+            border: 2px solid #e2e8f0;
+        }
+
+        .toggle-btn {
+            flex: 1;
+            padding: 12px 20px;
+            text-align: center;
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            color: #4a5568;
+            border-radius: 8px;
+            position: relative;
+        }
+
+        .toggle-btn.active {
+            background: #3182ce;
+            color: white;
+            box-shadow: 0 4px 12px rgba(49, 130, 206, 0.3);
+        }
+
+        .toggle-btn:not(.active):hover {
+            color: #2d3748;
+            background: rgba(49, 130, 206, 0.1);
+        }
+
+        .form-container {
+            position: relative;
+        }
+
+        .form {
+            display: none;
+        }
+
+        .form.active {
+            display: block;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 15px 20px;
+            border: 2px solid #e2e8f0;
+            border-radius: 12px;
+            font-size: 16px;
+            font-family: inherit;
+            transition: all 0.3s ease;
+            background: white;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: #3182ce;
+            box-shadow: 0 0 0 3px rgba(49, 130, 206, 0.1);
+        }
+
+        .form-group input:hover:not(:focus) {
+            border-color: #cbd5e0;
+        }
+
+        .form-group input::placeholder {
+            color: #999;
+        }
+
+        .submit-btn {
+            width: 100%;
+            padding: 15px 24px;
+            background: linear-gradient(135deg, #3182ce, #2c5282);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-family: inherit;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .submit-btn:hover {
+            background: linear-gradient(135deg, #2c5282, #2a4365);
+            box-shadow: 0 8px 25px rgba(49, 130, 206, 0.4);
+            transform: translateY(-2px);
+        }
+
+        .submit-btn.loading {
+            pointer-events: none;
+            opacity: 0.8;
+        }
+
+        .submit-btn.loading::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 20px;
+            height: 20px;
+            margin: -10px 0 0 -10px;
+            border: 2px solid transparent;
+            border-top: 2px solid white;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .forgot-password {
+            text-align: center;
+            margin-top: 20px;
+        }
+
+        .forgot-password a {
+            color: #3182ce;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 500;
+            transition: color 0.3s ease;
+        }
+
+        .forgot-password a:hover {
+            color: #2c5282;
+            text-decoration: underline;
+        }
+
+        .success-message {
+            background: linear-gradient(135deg, #f0fff4, #c6f6d5);
+            color: #22543d;
+            padding: 15px 20px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            border: 1px solid #9ae6b4;
+            display: none;
+            position: relative;
+            box-shadow: 0 4px 12px rgba(34, 84, 61, 0.1);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .success-message i {
+            color: #38a169;
+            font-size: 18px;
+        }
+
+        .error-message {
+            background: linear-gradient(135deg, #fed7d7, #feb2b2);
+            color: #742a2a;
+            padding: 15px 20px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            border: 1px solid #fc8181;
+            display: none;
+            position: relative;
+            box-shadow: 0 4px 12px rgba(116, 42, 42, 0.1);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .error-message i {
+            color: #e53e3e;
+            font-size: 18px;
+        }
+
+
+
+
+
+        /* Form Group Enhancement */
+        .form-group {
+            position: relative;
+            margin-bottom: 25px;
+        }
+
+        .form-group label {
+            position: absolute;
+            top: 15px;
+            left: 20px;
+            color: #a0aec0;
+            font-weight: 400;
+            transition: all 0.3s ease;
+            pointer-events: none;
+            background: white;
+            padding: 0 5px;
+        }
+
+        .form-group input:focus + label,
+        .form-group input:not(:placeholder-shown) + label {
+            top: -8px;
+            left: 16px;
+            font-size: 12px;
+            color: #3182ce;
+            font-weight: 600;
+        }
+
+        .form-group input {
+            padding: 15px;
+        }
+
+        .form-group input::placeholder {
+            color: transparent;
+        }
+
+        /* Progress Bar */
+        .progress-container {
+            position: relative;
+            height: 4px;
+            background: #e2e8f0;
+            border-radius: 2px;
+            margin-bottom: 25px;
+            overflow: hidden;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #3182ce, #2c5282);
+            border-radius: 2px;
+            width: 0%;
+            transition: width 0.3s ease;
+            position: relative;
+        }
+
+
+
+
+
+        @media (max-width: 480px) {
+            .container {
+                margin: 20px;
+                padding: 30px 20px;
+            }
+            
+            .logo h1 {
+                font-size: 2em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">
+            <h1><i class="fas fa-chart-line icon"></i>JIRA Dashboard</h1>
+            <p style="color: #4a5568; font-size: 1rem; margin-top: 8px; font-weight: 400;">Access your project insights</p>
+        </div>
+
+        <div class="form-toggle">
+            <button class="toggle-btn active" onclick="showLogin()">Login</button>
+            <button class="toggle-btn" onclick="showSignup()">Sign Up</button>
+        </div>
+
+        <div class="progress-container">
+            <div class="progress-bar" id="progressBar"></div>
+        </div>
+
+        <div id="successMessage" class="success-message" style="display: none;">
+            <i class="fas fa-check-circle"></i>
+            <span class="message-text"></span>
+        </div>
+        <div id="errorMessage" class="error-message" style="display: none;">
+            <i class="fas fa-exclamation-triangle"></i>
+            <span class="message-text"></span>
+        </div>
+
+        <div class="form-container">
+            <!-- Login Form -->
+            <form id="loginForm" class="form active">
+                <div class="form-group">
+                    <input type="email" id="loginEmail" name="email" placeholder="Enter your @lumen.com email" required>
+                    <label for="loginEmail">Email</label>
+                </div>
+                
+                <div class="form-group">
+                    <input type="password" id="loginPassword" name="password" placeholder="Enter your password" required>
+                    <label for="loginPassword">Password</label>
+                </div>
+                
+                <button type="submit" class="submit-btn">Login</button>
+                
+                <div class="forgot-password">
+                    <a href="#" onclick="showForgotPassword()">Forgot Password?</a>
+                </div>
+            </form>
+
+            <!-- Sign Up Form -->
+            <form id="signupForm" class="form">
+                <div class="form-group">
+                    <input type="email" id="signupEmail" name="email" placeholder="Enter your @lumen.com email" required>
+                    <label for="signupEmail">Email</label>
+                </div>
+                
+                <div class="form-group">
+                    <input type="password" id="signupPassword" name="password" placeholder="Create a password" required>
+                    <label for="signupPassword">Password</label>
+                </div>
+                
+                <div class="form-group">
+                    <input type="password" id="confirmPassword" name="confirmPassword" placeholder="Confirm your password" required>
+                    <label for="confirmPassword">Confirm Password</label>
+                </div>
+                
+                <button type="submit" class="submit-btn">Sign Up</button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // Simple account storage (in a real app, this would be on the server)
+        let registeredAccounts = JSON.parse(localStorage.getItem('lumenAccounts')) || {};
+
+
+
+        // Update progress bar
+        function updateProgressBar(percentage) {
+            const progressBar = document.getElementById('progressBar');
+            progressBar.style.width = percentage + '%';
+        }
+
+        // Add loading state to buttons
+        function setButtonLoading(formId, isLoading) {
+            const form = document.getElementById(formId);
+            const button = form.querySelector('.submit-btn');
+            
+            if (isLoading) {
+                button.classList.add('loading');
+                button.setAttribute('data-original-text', button.textContent);
+                button.textContent = '';
+            } else {
+                button.classList.remove('loading');
+                const originalText = button.getAttribute('data-original-text');
+                if (originalText) {
+                    button.textContent = originalText;
+                } else {
+                    button.textContent = formId === 'loginForm' ? 'LOGIN' : 'SIGN UP';
+                }
+            }
+        }
+
+        function showLogin() {
+            document.getElementById('loginForm').classList.add('active');
+            document.getElementById('signupForm').classList.remove('active');
+            document.querySelectorAll('.toggle-btn')[0].classList.add('active');
+            document.querySelectorAll('.toggle-btn')[1].classList.remove('active');
+            clearMessages();
+            updateProgressBar(0);
+        }
+
+        function showSignup() {
+            document.getElementById('signupForm').classList.add('active');
+            document.getElementById('loginForm').classList.remove('active');
+            document.querySelectorAll('.toggle-btn')[1].classList.add('active');
+            document.querySelectorAll('.toggle-btn')[0].classList.remove('active');
+            clearMessages();
+            updateProgressBar(0);
+        }
+
+        function showForgotPassword() {
+            showMessage('Password reset link has been sent to your email!', 'success');
+        }
+
+        function showMessage(message, type) {
+            clearMessages();
+            const messageElement = document.getElementById(type + 'Message');
+            const messageText = messageElement.querySelector('.message-text');
+            messageText.textContent = message;
+            messageElement.style.display = 'flex';
+            
+            setTimeout(() => {
+                messageElement.style.display = 'none';
+            }, 5000);
+        }
+
+        function clearMessages() {
+            document.getElementById('successMessage').style.display = 'none';
+            document.getElementById('errorMessage').style.display = 'none';
+        }
+
+        // Handle Login Form Submission
+        document.getElementById('loginForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const email = document.getElementById('loginEmail').value;
+            const password = document.getElementById('loginPassword').value;
+            
+            setButtonLoading('loginForm', true);
+            updateProgressBar(20);
+            
+            if (!email || !password) {
+                setButtonLoading('loginForm', false);
+                showMessage('Please fill in all fields!', 'error');
+                updateProgressBar(0);
+                return;
+            }
+
+            updateProgressBar(40);
+
+            // Validate Lumen email domain
+            if (!email.endsWith('@lumen.com')) {
+                setButtonLoading('loginForm', false);
+                showMessage('Please use a valid Lumen email address', 'error');
+                updateProgressBar(0);
+                return;
+            }
+
+            updateProgressBar(60);
+
+            // Check if account exists
+            if (!registeredAccounts[email]) {
+                setButtonLoading('loginForm', false);
+                showMessage('Account not found. Please sign up first.', 'error');
+                updateProgressBar(0);
+                setTimeout(() => {
+                    showMessage('Click "Sign Up" to create a new account', 'error');
+                }, 2000);
+                return;
+            }
+
+            updateProgressBar(80);
+
+            // Validate password
+            if (registeredAccounts[email].password !== password) {
+                setButtonLoading('loginForm', false);
+                showMessage('Invalid password. Please try again.', 'error');
+                updateProgressBar(0);
+                return;
+            }
+
+            // Extract username from email for display
+            const username = email.split('@')[0];
+
+            // Simulate login process
+            setTimeout(() => {
+                updateProgressBar(100);
+                setButtonLoading('loginForm', false);
+                showMessage('Login successful! Welcome back, ' + username + '!', 'success');
+                // Redirect to dashboard after successful login
+                setTimeout(() => {
+                    showMessage('Redirecting to dashboard...', 'success');
+                    // Store user info and redirect to dashboard
+                    localStorage.setItem('currentUser', username);
+                    localStorage.setItem('currentEmail', email);
+                    window.location.href = `dashboard.html?uid=${encodeURIComponent(username)}&email=${encodeURIComponent(email)}`;
+                }, 1500);
+                console.log('Login attempt:', { email, password });
+            }, 1000);
+        });
+
+        // Handle Sign Up Form Submission
+        document.getElementById('signupForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const email = document.getElementById('signupEmail').value;
+            const password = document.getElementById('signupPassword').value;
+            const confirmPassword = document.getElementById('confirmPassword').value;
+            
+            setButtonLoading('signupForm', true);
+            updateProgressBar(20);
+            
+            if (!email || !password || !confirmPassword) {
+                setButtonLoading('signupForm', false);
+                showMessage('Please fill in all fields!', 'error');
+                updateProgressBar(0);
+                return;
+            }
+
+            updateProgressBar(40);
+
+            // Validate Lumen email domain
+            if (!email.endsWith('@lumen.com')) {
+                setButtonLoading('signupForm', false);
+                showMessage('Please use a valid Lumen email address', 'error');
+                updateProgressBar(0);
+                return;
+            }
+
+            updateProgressBar(60);
+
+            if (password !== confirmPassword) {
+                setButtonLoading('signupForm', false);
+                showMessage('Passwords do not match!', 'error');
+                updateProgressBar(0);
+                return;
+            }
+
+            if (password.length < 6) {
+                setButtonLoading('signupForm', false);
+                showMessage('Password must be at least 6 characters long!', 'error');
+                updateProgressBar(0);
+                return;
+            }
+
+            updateProgressBar(80);
+
+            // Check if account already exists
+            if (registeredAccounts[email]) {
+                setButtonLoading('signupForm', false);
+                showMessage('Account already exists for this email. Please login instead.', 'error');
+                updateProgressBar(0);
+                setTimeout(() => {
+                    showLogin();
+                    document.getElementById('loginEmail').value = email;
+                }, 2000);
+                return;
+            }
+
+            // Extract username from email for display
+            const username = email.split('@')[0];
+
+            // Store the new account
+            registeredAccounts[email] = {
+                password: password
+            };
+            localStorage.setItem('lumenAccounts', JSON.stringify(registeredAccounts));
+
+            // Simulate sign up process
+            setTimeout(() => {
+                updateProgressBar(100);
+                setButtonLoading('signupForm', false);
+                showMessage('Account created successfully! Welcome, ' + username + '!', 'success');
+                // Here you would typically send the data to your server
+                console.log('Sign up attempt:', { email, password });
+                
+                // Switch to login form after successful signup
+                setTimeout(() => {
+                    showLogin();
+                    document.getElementById('loginEmail').value = email;
+                    showMessage('You can now login with your new account!', 'success');
+                }, 2000);
+            }, 1000);
+        });
+
+        // Add input validation feedback
+        document.querySelectorAll('input[type="email"]').forEach(input => {
+            input.addEventListener('blur', function() {
+                const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                if (this.value && !emailRegex.test(this.value)) {
+                    this.style.borderColor = '#e53e3e';
+                } else if (this.value && !this.value.endsWith('@lumen.com')) {
+                    this.style.borderColor = '#e53e3e';
+                } else {
+                    this.style.borderColor = '#e2e8f0';
+                }
+            });
+        });
+
+
+
+        // Initialize when page loads
+        window.addEventListener('load', function() {
+            // Add input event listeners for progress tracking
+            const inputs = document.querySelectorAll('input');
+            inputs.forEach(input => {
+                input.addEventListener('input', function() {
+                    const form = this.closest('form');
+                    const formInputs = form.querySelectorAll('input');
+                    let filledInputs = 0;
+                    
+                    formInputs.forEach(inp => {
+                        if (inp.value.trim() !== '') filledInputs++;
+                    });
+                    
+                    const progress = (filledInputs / formInputs.length) * 50;
+                    updateProgressBar(progress);
+                });
+            });
+        });
+
+        // Password strength indicator for signup
+        document.getElementById('signupPassword').addEventListener('input', function() {
+            const password = this.value;
+            let strength = 0;
+            
+            if (password.length >= 6) strength++;
+            if (password.match(/[a-z]/) && password.match(/[A-Z]/)) strength++;
+            if (password.match(/\d/)) strength++;
+            if (password.match(/[^a-zA-Z\d]/)) strength++;
+            
+            if (strength < 2) {
+                this.style.borderColor = '#e53e3e';
+            } else if (strength < 3) {
+                this.style.borderColor = '#d69e2e';
+            } else {
+                this.style.borderColor = '#38a169';
+            }
+        });
+    </script>
+</body>
+</html>
