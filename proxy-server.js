@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
@@ -20,9 +21,9 @@ app.get('/demo', (req, res) => {
 });
 
 const JIRA_CONFIG = {
-    baseUrl: 'https://your-instance.atlassian.net/',
-    username: 'your-email@example.com',
-    apiToken: 'YOUR_JIRA_API_TOKEN_HERE'
+    baseUrl: 'https://lumen.atlassian.net/',
+    username: 'Zuha.Mujawar@lumen.com',
+    apiToken: process.env.JIRA_API_TOKEN || 'YOUR_JIRA_API_TOKEN_HERE'
 };
 
 // Dashboard expects /search endpoint with JQL query parameter
@@ -40,7 +41,7 @@ app.get('/search', async (req, res) => {
             {
                 jql: jql,
                 maxResults: 100,
-                fields: ['key', 'summary', 'status', 'assignee', 'issuetype', 'description', 'customfield_10014', 'issuelinks', 'fixVersions', 'versions', 'customfield_10004', 'customfield_10005', 'customfield_10006', 'customfield_10007', 'customfield_10008', 'customfield_10009', 'customfield_10010', 'customfield_10011', 'customfield_10012', 'customfield_10013', 'customfield_10015', 'customfield_10016', 'customfield_10017', 'customfield_10018', 'customfield_10019', 'customfield_10020', 'customfield_10021', 'customfield_10022', 'customfield_10023', 'customfield_10024', 'customfield_10025', 'customfield_10026', 'customfield_10027', 'customfield_10028', 'customfield_10029', 'customfield_10030', 'customfield_10221', 'parent']
+                fields: ['key', 'summary', 'status', 'assignee', 'reporter', 'issuetype', 'description', 'customfield_10014', 'issuelinks', 'fixVersions', 'versions', 'customfield_10004', 'customfield_10005', 'customfield_10006', 'customfield_10007', 'customfield_10008', 'customfield_10009', 'customfield_10010', 'customfield_10011', 'customfield_10012', 'customfield_10013', 'customfield_10015', 'customfield_10016', 'customfield_10017', 'customfield_10018', 'customfield_10019', 'customfield_10020', 'customfield_10021', 'customfield_10022', 'customfield_10023', 'customfield_10024', 'customfield_10025', 'customfield_10026', 'customfield_10027', 'customfield_10028', 'customfield_10029', 'customfield_10030', 'customfield_10056', 'customfield_10221', 'parent']
             },
             {
                 headers: {

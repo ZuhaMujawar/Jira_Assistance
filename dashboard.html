@@ -228,6 +228,17 @@
         .stat-item { text-align: center; color: white; }
         .stat-number { font-size: 2rem; font-weight: 700; margin-bottom: 5px; }
         .stat-label { font-size: 0.9rem; opacity: 0.9; font-weight: 500; }
+        .email-button {
+            margin-left: 15px; padding: 8px 16px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+            color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; 
+            font-weight: 500; display: flex; align-items: center; gap: 6px; transition: all 0.3s ease;
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+        }
+        .email-button:hover {
+            background: linear-gradient(135deg, #5a67d8 0%, #6b46c1 100%);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
         @media (max-width: 768px) {
             .search-controls { flex-direction: column; align-items: stretch; }
             .search-input { min-width: unset; width: 100%; }
@@ -309,6 +320,8 @@
                 }
 
                 searchData = data.issues || [];
+                window.currentSearchData = searchData; // Store globally for email function
+                window.currentEpicsWithStories = {}; // Store epic-story relationships
                 await processAndDisplayResults();
                 
             } catch (error) {
@@ -369,6 +382,9 @@
                 
                 const epicStories = await getStoriesForEpic(epic.key);
                 const bugsForEpic = await getBugsForEpic(epic.key, epicStories);
+                
+                // Store epic-story relationships for email function
+                window.currentEpicsWithStories[epic.key] = epicStories;
                 
                 resultsHtml += createEpicCard(epic, epicStories, bugsForEpic);
             }
@@ -515,6 +531,13 @@
                             <i class="fas fa-plus-circle feature-toggle-icon" style="color: #3182ce; margin-right: 8px; transition: transform 0.3s ease;"></i>
                             <strong>Feature - ${epic.key}: ${epic.fields.summary}</strong>
                         </div>
+                        ${stories.length > 0 ? `
+                        <button class="email-button" onclick="event.stopPropagation(); sendEmailsDirectly('${epic.key}')" 
+                                title="Send notification emails for stories with missing fields">
+                            <i class="fas fa-envelope"></i>
+                            Email Notifications
+                        </button>
+                        ` : ''}
                     </div>
                     <div class="feature-details">
                         <div class="feature-branch-structure">
@@ -612,17 +635,131 @@
             `;
         }
 
+        // Improved field validation based on actual JIRA field structures
+        function isFieldEmpty(field, fieldName = 'unknown') {
+            console.log(`Checking field ${fieldName}:`, field, 'Type:', typeof field);
+            
+            // Null or undefined - definitely empty
+            if (field === null || field === undefined) {
+                console.log(`${fieldName} is null/undefined, returning true`);
+                return true;
+            }
+            
+            // Empty string - empty
+            if (typeof field === 'string' && field.trim() === '') {
+                console.log(`${fieldName} is empty string, returning true`);
+                return true;
+            }
+            
+            // Non-empty string - has content
+            if (typeof field === 'string' && field.trim().length > 0) {
+                // Check for special cases like "No acceptance criteria defined"
+                if (field.includes('No acceptance criteria') || field.includes('No description')) {
+                    console.log(`${fieldName} contains "No content" text, returning true`);
+                    return true;
+                }
+                console.log(`${fieldName} is non-empty string, returning false`);
+                return false;
+            }
+            
+            // Empty array - empty
+            if (Array.isArray(field) && field.length === 0) {
+                console.log(`${fieldName} is empty array, returning true`);
+                return true;
+            }
+            
+            // Empty object - empty
+            if (typeof field === 'object' && Object.keys(field).length === 0) {
+                console.log(`${fieldName} is empty object, returning true`);
+                return true;
+            }
+            
+            // For all other cases (non-empty objects, arrays with content, etc.) - has content
+            console.log(`${fieldName} has content, returning false`);
+            return false;
+        }
+
+        // Helper function to determine story styling based on missing fields
+        function getStoryStyles(story) {
+            console.log('=== Checking story:', story.key, '===');
+            console.log('Raw description field:', story.fields.description);
+            console.log('Raw customfield_10056 field:', story.fields.customfield_10056);
+            
+            // Show the entire fields object structure for debugging
+            console.log('All story fields keys:', Object.keys(story.fields));
+            
+            // Show detailed analysis
+            console.log('Description analysis:');
+            console.log('- Type:', typeof story.fields.description);
+            console.log('- Is null/undefined:', story.fields.description == null);
+            console.log('- Is empty string:', story.fields.description === '');
+            console.log('- If object, keys:', story.fields.description && typeof story.fields.description === 'object' ? Object.keys(story.fields.description) : 'N/A');
+            
+            console.log('CustomField_10056 analysis:');
+            console.log('- Type:', typeof story.fields.customfield_10056);
+            console.log('- Is null/undefined:', story.fields.customfield_10056 == null);
+            console.log('- Is empty string:', story.fields.customfield_10056 === '');
+            console.log('- If object, keys:', story.fields.customfield_10056 && typeof story.fields.customfield_10056 === 'object' ? Object.keys(story.fields.customfield_10056) : 'N/A');
+            
+            const hasDescription = !isFieldEmpty(story.fields.description, 'description');
+            const hasAcceptanceCriteria = !isFieldEmpty(story.fields.customfield_10056, 'customfield_10056');
+            
+            console.log(`Story ${story.key} - hasDescription:`, hasDescription, 'hasAcceptanceCriteria:', hasAcceptanceCriteria);
+            
+            // RESTORED LOGIC: If missing description OR acceptance criteria (or both), make it red
+            const isMissingFields = !hasDescription || !hasAcceptanceCriteria;
+            
+            console.log(`Story ${story.key} - isMissingFields:`, isMissingFields);
+            
+            if (isMissingFields) {
+                console.log(`Story ${story.key} - Applying RED styling`);
+                return {
+                    backgroundColor: '#fee2e2', // Light red background
+                    borderColor: '#dc2626',     // Red border
+                    hoverBackgroundColor: '#fecaca', // Slightly darker red on hover
+                    hoverBorderColor: '#b91c1c'     // Darker red border on hover
+                };
+            } else {
+                console.log(`Story ${story.key} - Applying NORMAL styling`);
+                // Normal styling - both fields present
+                return {
+                    backgroundColor: 'white',
+                    borderColor: '#e2e8f0',
+                    hoverBackgroundColor: '#f8fafc',
+                    hoverBorderColor: '#3182ce'
+                };
+            }
+        }
+
         function createStoryListItem(story) {
             const customField10221 = story.fields.customfield_10221;
+            const styles = getStoryStyles(story);
+            
+            // Create missing field indicators with same logic as getStoryStyles
+            const hasDescription = !isFieldEmpty(story.fields.description, `${story.key}_description`);
+            const hasAcceptanceCriteria = !isFieldEmpty(story.fields.customfield_10056, `${story.key}_customfield_10056`);
+            const missingFields = [];
+            if (!hasDescription) missingFields.push('Description');
+            if (!hasAcceptanceCriteria) missingFields.push('Acceptance Criteria');
+            
+            console.log(`Story ${story.key} - Final missing fields:`, missingFields);
+            
+            // RESTORED: Show missing field indicators when fields are missing
+            const missingFieldsIndicator = missingFields.length > 0 
+                ? `<div style="margin-left: 8px; display: flex; align-items: center; gap: 4px;">
+                     <i class="fas fa-exclamation-triangle" style="color: #dc2626; font-size: 12px;" title="Missing: ${missingFields.join(', ')}"></i>
+                     <span style="color: #dc2626; font-size: 11px; font-weight: 500;" title="Missing: ${missingFields.join(', ')}">Missing: ${missingFields.join(', ')}</span>
+                   </div>`
+                : '';
             
             return `
                 <div class="story-list-item" style="
                     margin-bottom: 8px; 
-                    background: white; 
-                    border: 1px solid #e2e8f0; 
+                    background: ${styles.backgroundColor}; 
+                    border: 1px solid ${styles.borderColor}; 
                     border-radius: 6px; 
                     transition: all 0.2s ease;
-                " onmouseover="this.style.backgroundColor='#f8fafc'; this.style.borderColor='#3182ce';" onmouseout="this.style.backgroundColor='white'; this.style.borderColor='#e2e8f0';">
+                " onmouseover="this.style.backgroundColor='${styles.hoverBackgroundColor}'; this.style.borderColor='${styles.hoverBorderColor}';" onmouseout="this.style.backgroundColor='${styles.backgroundColor}'; this.style.borderColor='${styles.borderColor}';">
                     
                     <div style="
                         display: flex; 
@@ -638,6 +775,7 @@
                                   onmouseover="this.style.color='#3182ce'" 
                                   onmouseout="this.style.color='#1f2937'"
                                   title="Click to open ${story.key} in JIRA">${story.key}</span>
+                            ${missingFieldsIndicator}
                         </div>
                         
                         <!-- Story Title -->
@@ -1121,13 +1259,9 @@
                         console.log(`No acceptance criteria found in ${acField} for epic ${epicKey}`);
                     }
                     
-                    // Get reporter and assignee emails for potential email notifications
-                    const reporterEmail = epic.fields.reporter ? epic.fields.reporter.emailAddress : null;
-                    const assigneeEmail = epic.fields.assignee ? epic.fields.assignee.emailAddress : null;
-                    
-                    // Format description and acceptance criteria with email button support
-                    const formattedDescription = formatDescription(description, epicKey, reporterEmail, assigneeEmail);
-                    const formattedAcceptanceCriteria = formatAcceptanceCriteria(acceptanceCriteria, epicKey, reporterEmail, assigneeEmail);
+                    // Format description and acceptance criteria
+                    const formattedDescription = formatDescription(description, epicKey);
+                    const formattedAcceptanceCriteria = formatAcceptanceCriteria(acceptanceCriteria, epicKey);
                     
                     // Display the epic details in a compact format suitable for the Details of Feature section
                     detailsDiv.innerHTML = `
@@ -1175,7 +1309,6 @@
                                                 </div>
                                                 <span style="font-style: italic; font-size: 13px;">Unassigned</span>
                                             </div>
-                                            ${reporterEmail ? createEmailButton(epicKey, reporterEmail, 'assignee') : ''}
                                         </div>
                                         `}
                                     </div>
@@ -1185,7 +1318,6 @@
                         
                         <div style="margin-top: 10px; font-size: 11px; color: #9ca3af; text-align: center;">
                             <strong>Epic:</strong> ${epic.key} | <strong>Type:</strong> ${epic.fields.issuetype ? epic.fields.issuetype.name : 'Unknown'}
-                            ${reporterEmail ? ` | <strong>Reporter:</strong> ${epic.fields.reporter.displayName} (${reporterEmail})` : ''}
                         </div>
                     `;
                     
@@ -1305,13 +1437,9 @@
                         console.log(`No acceptance criteria found in ${acField} for story ${storyKey}`);
                     }
                     
-                    // Get reporter and assignee emails for potential email notifications
-                    const reporterEmail = story.fields.reporter ? story.fields.reporter.emailAddress : null;
-                    const assigneeEmail = story.fields.assignee ? story.fields.assignee.emailAddress : null;
-                    
-                    // Format description and acceptance criteria with email button support
-                    const formattedDescription = formatDescription(description, storyKey, reporterEmail, assigneeEmail);
-                    const formattedAcceptanceCriteria = formatAcceptanceCriteria(acceptanceCriteria, storyKey, reporterEmail, assigneeEmail);
+                    // Format description and acceptance criteria
+                    const formattedDescription = formatDescription(description, storyKey);
+                    const formattedAcceptanceCriteria = formatAcceptanceCriteria(acceptanceCriteria, storyKey);
                     
                     // Display the details
                     detailsDiv.innerHTML = `
@@ -1322,7 +1450,6 @@
                             </h4>
                             <div style="background: white; padding: 10px; border-radius: 6px; font-size: 13px; line-height: 1.5; color: #4b5563;">
                                 ${formattedDescription.content}
-                                ${formattedDescription.isEmpty ? createEmailButton(storyKey, reporterEmail, 'Description') : ''}
                             </div>
                         </div>
                         
@@ -1333,7 +1460,6 @@
                             </h4>
                             <div style="background: white; padding: 10px; border-radius: 6px; font-size: 13px; line-height: 1.5; color: #4b5563;">
                                 ${formattedAcceptanceCriteria.content}
-                                ${formattedAcceptanceCriteria.isEmpty ? createEmailButton(storyKey, reporterEmail, 'High Level Acceptance Criteria') : ''}
                             </div>
                         </div>
                         
@@ -1341,7 +1467,6 @@
                             <strong>Status:</strong> ${story.fields.status ? story.fields.status.name : 'Unknown'} | 
                             <strong>Assignee:</strong> ${story.fields.assignee ? story.fields.assignee.displayName : 'Unassigned'} |
                             <strong>Issue Type:</strong> ${story.fields.issuetype ? story.fields.issuetype.name : 'Unknown'}
-                            ${reporterEmail ? ` | <strong>Reporter:</strong> ${story.fields.reporter.displayName} (${reporterEmail})` : ''}
                         </div>
                         
                         <div style="margin-top: 8px; font-size: 11px; color: #9ca3af;">
@@ -1368,17 +1493,12 @@
             }
         }
 
-        function formatDescription(description, issueKey, reporterEmail, assigneeEmail) {
+        function formatDescription(description, issueKey) {
             if (!description || description === 'No description available') {
                 return {
-                    content: `<div style="display: flex; justify-content: space-between; align-items: center;">
-                        <em style="color: #9ca3af;">No description provided for this story.</em>
-                        ${assigneeEmail ? createEmailButton(issueKey, assigneeEmail, 'description') : ''}
-                    </div>`,
+                    content: `<em style="color: #9ca3af;">No description provided for this story.</em>`,
                     isEmpty: true,
-                    issueKey: issueKey,
-                    reporterEmail: reporterEmail,
-                    assigneeEmail: assigneeEmail
+                    issueKey: issueKey
                 };
             }
             
@@ -1404,27 +1524,20 @@
             return {
                 content: formattedContent,
                 isEmpty: false,
-                issueKey: issueKey,
-                reporterEmail: reporterEmail,
-                assigneeEmail: assigneeEmail
+                issueKey: issueKey
             };
         }
 
-        function formatAcceptanceCriteria(criteria, issueKey, reporterEmail, assigneeEmail) {
+        function formatAcceptanceCriteria(criteria, issueKey) {
             console.log('formatAcceptanceCriteria called with:', criteria);
             console.log('Type:', typeof criteria);
             console.log('Full object structure:', JSON.stringify(criteria, null, 2));
             
             if (!criteria || criteria === 'No acceptance criteria defined' || criteria === 'No high level acceptance criteria defined for this feature') {
                 return {
-                    content: `<div style="display: flex; justify-content: space-between; align-items: center;">
-                        <em style="color: #9ca3af;">No high level acceptance criteria defined for this story.</em>
-                        ${assigneeEmail ? createEmailButton(issueKey, assigneeEmail, 'acceptance criteria') : ''}
-                    </div>`,
+                    content: `<em style="color: #9ca3af;">No high level acceptance criteria defined for this story.</em>`,
                     isEmpty: true,
-                    issueKey: issueKey,
-                    reporterEmail: reporterEmail,
-                    assigneeEmail: assigneeEmail
+                    issueKey: issueKey
                 };
             }
             
@@ -1444,9 +1557,7 @@
                 return {
                     content: formatted,
                     isEmpty: false,
-                    issueKey: issueKey,
-                    reporterEmail: reporterEmail,
-                    assigneeEmail: assigneeEmail
+                    issueKey: issueKey
                 };
             }
             
@@ -1458,9 +1569,7 @@
                 return {
                     content: formatted,
                     isEmpty: false,
-                    issueKey: issueKey,
-                    reporterEmail: reporterEmail,
-                    assigneeEmail: assigneeEmail
+                    issueKey: issueKey
                 };
             }
             
@@ -1478,9 +1587,7 @@
                 return {
                     content: content,
                     isEmpty: false,
-                    issueKey: issueKey,
-                    reporterEmail: reporterEmail,
-                    assigneeEmail: assigneeEmail
+                    issueKey: issueKey
                 };
             }
             
@@ -1496,9 +1603,7 @@
                     return {
                         content: content,
                         isEmpty: false,
-                        issueKey: issueKey,
-                        reporterEmail: reporterEmail,
-                        assigneeEmail: assigneeEmail
+                        issueKey: issueKey
                     };
                 }
                 
@@ -1509,9 +1614,7 @@
                     return {
                         content: textExtractionResult,
                         isEmpty: false,
-                        issueKey: issueKey,
-                        reporterEmail: reporterEmail,
-                        assigneeEmail: assigneeEmail
+                        issueKey: issueKey
                     };
                 }
                 
@@ -1533,9 +1636,7 @@
                         </details>
                     </div>`,
                     isEmpty: false,
-                    issueKey: issueKey,
-                    reporterEmail: reporterEmail,
-                    assigneeEmail: assigneeEmail
+                    issueKey: issueKey
                 };
             }
             
@@ -1543,172 +1644,8 @@
             return {
                 content: String(criteria),
                 isEmpty: false,
-                issueKey: issueKey,
-                reporterEmail: reporterEmail,
-                assigneeEmail: assigneeEmail
+                issueKey: issueKey
             };
-        }
-
-        function createEmailButton(issueKey, recipientEmail, fieldType) {
-            if (!recipientEmail) {
-                return '';
-            }
-            
-            // Determine recipient type based on field type
-            const isForAssignee = (fieldType === 'description' || fieldType === 'acceptance criteria');
-            const recipientType = isForAssignee ? 'Assignee' : 'Reporter';
-            const functionName = isForAssignee ? 'sendEmailToAssignee' : 'sendEmailToReporter';
-            
-            return `
-                <div style="margin-top: 8px; text-align: right;">
-                    <button onclick="${functionName}('${issueKey}', '${recipientEmail}', '${fieldType}')" 
-                            style="
-                                background: #dc2626; 
-                                color: white; 
-                                border: none; 
-                                padding: 6px 12px; 
-                                border-radius: 4px; 
-                                font-size: 12px; 
-                                cursor: pointer; 
-                                transition: all 0.2s ease;
-                                display: flex;
-                                align-items: center;
-                                gap: 6px;
-                                margin-left: auto;
-                            " 
-                            onmouseover="this.style.backgroundColor='#b91c1c';" 
-                            onmouseout="this.style.backgroundColor='#dc2626';"
-                            title="Send email to ${recipientType.toLowerCase()} to fill missing ${fieldType}">
-                        <i class="fas fa-envelope"></i>
-                        <span>Email ${recipientType}</span>
-                    </button>
-                </div>
-            `;
-        }
-
-        function sendEmailToReporter(issueKey, reporterEmail, fieldType) {
-            let fieldDisplayName, fieldDescription, actionText;
-            
-            switch(fieldType) {
-                case 'description':
-                    fieldDisplayName = 'Description';
-                    fieldDescription = 'description field';
-                    actionText = 'Please provide a detailed description of the issue';
-                    break;
-                case 'acceptance criteria':
-                    fieldDisplayName = 'High Level Acceptance Criteria';
-                    fieldDescription = 'acceptance criteria field';
-                    actionText = 'Please define the acceptance criteria for this issue';
-                    break;
-                case 'assignee':
-                    fieldDisplayName = 'Assignee';
-                    fieldDescription = 'assignee field';
-                    actionText = 'Please assign this issue to the appropriate team member';
-                    break;
-                default:
-                    fieldDisplayName = fieldType.charAt(0).toUpperCase() + fieldType.slice(1);
-                    fieldDescription = `${fieldType} field`;
-                    actionText = `Please fill in the ${fieldType} field`;
-            }
-            
-            const subject = `Action Required: Missing ${fieldDisplayName} for ${issueKey}`;
-            const body = `Dear Team Member,
-
-I hope this email finds you well.
-
-I noticed that the ${fieldDescription} is empty for the following JIRA issue:
-
-Issue: ${issueKey}
-Field Missing: ${fieldDisplayName}
-
-The ${fieldDescription} is empty or none. ${actionText}.
-
-Could you please take a moment to update the issue? This information is important for proper project tracking and requirements clarity.
-
-To update the issue:
-1. Open the JIRA issue: ${issueKey}
-2. Edit the issue
-3. ${actionText}
-4. Save your changes
-
-Thank you for your attention to this matter.
-
-Best regards,
-Project Team`;
-
-            const mailtoLink = `mailto:${reporterEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-            
-            try {
-                window.open(mailtoLink, '_blank');
-            } catch (error) {
-                console.error('Error opening email client:', error);
-                // Fallback: copy to clipboard
-                navigator.clipboard.writeText(`To: ${reporterEmail}\nSubject: ${subject}\n\n${body}`).then(() => {
-                    alert('Email content copied to clipboard. Please paste it in your email client.');
-                }).catch(() => {
-                    alert(`Please send an email to: ${reporterEmail}\nSubject: ${subject}`);
-                });
-            }
-        }
-
-        function sendEmailToAssignee(issueKey, assigneeEmail, fieldType) {
-            let fieldDisplayName, fieldDescription, actionText;
-            
-            switch(fieldType) {
-                case 'description':
-                    fieldDisplayName = 'Description';
-                    fieldDescription = 'description field';
-                    actionText = 'Please provide a detailed description of the issue';
-                    break;
-                case 'acceptance criteria':
-                    fieldDisplayName = 'High Level Acceptance Criteria';
-                    fieldDescription = 'acceptance criteria field';
-                    actionText = 'Please define the acceptance criteria for this issue';
-                    break;
-                default:
-                    fieldDisplayName = fieldType.charAt(0).toUpperCase() + fieldType.slice(1);
-                    fieldDescription = `${fieldType} field`;
-                    actionText = `Please fill in the ${fieldType} field`;
-            }
-            
-            const subject = `Action Required: Missing ${fieldDisplayName} for ${issueKey}`;
-            const body = `Dear Assignee,
-
-I hope this email finds you well.
-
-I noticed that the ${fieldDescription} is empty for the following JIRA issue assigned to you:
-
-Issue: ${issueKey}
-Field Missing: ${fieldDisplayName}
-
-The ${fieldDescription} is empty or none. ${actionText}.
-
-As the assignee of this issue, could you please take a moment to update the missing information? This is important for proper project tracking and requirements clarity.
-
-To update the issue:
-1. Open the JIRA issue: ${issueKey}
-2. Edit the issue
-3. ${actionText}
-4. Save your changes
-
-Thank you for your attention to this matter.
-
-Best regards,
-Project Team`;
-
-            const mailtoLink = `mailto:${assigneeEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-            
-            try {
-                window.open(mailtoLink, '_blank');
-            } catch (error) {
-                console.error('Error opening email client:', error);
-                // Fallback: copy to clipboard
-                navigator.clipboard.writeText(`To: ${assigneeEmail}\nSubject: ${subject}\n\n${body}`).then(() => {
-                    alert('Email content copied to clipboard. Please paste it in your email client.');
-                }).catch(() => {
-                    alert(`Please send an email to: ${assigneeEmail}\nSubject: ${subject}`);
-                });
-            }
         }
 
         function extractTextFromCustomField10056(obj) {
@@ -1932,6 +1869,275 @@ Project Team`;
             }
             
             return '';
+        }
+
+        // Direct Email Functionality (No Preview)
+        function sendEmailsDirectly(epicKey) {
+            console.log('=== DIRECT EMAIL SEND START ===');
+            console.log('Epic Key:', epicKey);
+            
+            const epicStories = getStoriesForEmailEpic(epicKey);
+            console.log('Total Stories Found:', epicStories.length);
+            
+            if (epicStories.length === 0) {
+                alert('No stories found for this feature.');
+                return;
+            }
+            
+            const storiesWithMissingFields = findStoriesWithMissingFields(epicStories);
+            console.log('Stories with missing fields:', storiesWithMissingFields.length);
+            
+            if (storiesWithMissingFields.length === 0) {
+                alert('Great! All stories in this feature have complete description and acceptance criteria.');
+                return;
+            }
+
+            const emailData = prepareEmailData(storiesWithMissingFields);
+            console.log('Email data prepared for', emailData.length, 'recipients');
+            
+            if (emailData.length === 0) {
+                alert('No email addresses found for reporters of stories with missing fields.');
+                return;
+            }
+
+            // Send emails directly with feature information
+            sendEmailsToOutlook(emailData, epicKey);
+        }
+
+        function sendEmailsToOutlook(emailData, epicKey) {
+            let emailsSent = 0;
+            
+            emailData.forEach((data, index) => {
+                const emailTemplate = generateEmailTemplate(data.reporterName, data.stories, data.ccEmails, epicKey);
+                const subject = encodeURIComponent(emailTemplate.subject);
+                const body = encodeURIComponent(emailTemplate.body);
+                const ccParam = data.ccEmails.length > 0 ? `&cc=${encodeURIComponent(data.ccEmails.join(','))}` : '';
+                const mailtoLink = `mailto:${data.email}?subject=${subject}&body=${body}${ccParam}`;
+                
+                console.log(`Opening email ${index + 1}:`, {
+                    to: data.email,
+                    cc: data.ccEmails,
+                    storiesCount: data.stories.length,
+                    feature: epicKey
+                });
+                
+                // Open mailto link (with a small delay between multiple emails)
+                setTimeout(() => {
+                    try {
+                        window.open(mailtoLink, '_blank');
+                        emailsSent++;
+                    } catch (error) {
+                        console.error('Error opening email:', error);
+                    }
+                }, index * 500);
+            });
+
+            // Show success message
+            setTimeout(() => {
+                alert(`${emailData.length} email${emailData.length === 1 ? '' : 's'} opened in Outlook with assignees CC'd.\n\nEmails sent to:\n${emailData.map(d => `• ${d.email} (${d.stories.length} ${d.stories.length === 1 ? 'story' : 'stories'})`).join('\n')}`);
+            }, emailData.length * 500 + 100);
+        }
+
+        function getStoriesForEmailEpic(epicKey) {
+            console.log('Getting stories for epic:', epicKey);
+            console.log('Available epic-story relationships:', Object.keys(window.currentEpicsWithStories || {}));
+            
+            let stories = window.currentEpicsWithStories?.[epicKey] || [];
+            console.log('Stories found in cache:', stories.length);
+            
+            if (stories.length === 0) {
+                console.log('No stories found in cached data, trying DOM parsing...');
+                
+                // Alternative: Parse stories from the currently displayed DOM
+                const epicCard = document.querySelector(`[data-epic-key="${epicKey}"]`);
+                if (!epicCard) {
+                    // Try to find the epic card by looking for the epic key in the text
+                    const allFeatureCards = document.querySelectorAll('.feature-card');
+                    for (const card of allFeatureCards) {
+                        if (card.innerHTML.includes(epicKey)) {
+                            console.log('Found epic card in DOM');
+                            // Extract story information from the DOM
+                            const storyElements = card.querySelectorAll('[data-story-key]');
+                            console.log('Story elements found in DOM:', storyElements.length);
+                            break;
+                        }
+                    }
+                }
+                
+                // Fallback: try to get from current search data
+                const allData = window.currentSearchData || [];
+                console.log('Fallback: Total search data available:', allData.length);
+                
+                const fallbackStories = allData.filter(item => {
+                    // Check multiple ways a story can be linked to an epic
+                    const epicLink = item.fields.customfield_10014; // Epic Link field
+                    const parent = item.fields.parent?.key;
+                    const issueType = item.fields.issuetype?.name;
+                    
+                    const isLinkedToEpic = epicLink === epicKey || parent === epicKey;
+                    const isStory = issueType === 'Story';
+                    
+                    console.log(`Item ${item.key}: type=${issueType}, epicLink=${epicLink}, parent=${parent}, linked=${isLinkedToEpic}`);
+                    
+                    return isLinkedToEpic && isStory;
+                });
+                
+                console.log('Fallback stories found:', fallbackStories.length, fallbackStories.map(s => s.key));
+                stories = fallbackStories;
+            }
+            
+            return stories;
+        }
+
+        function findStoriesWithMissingFields(stories) {
+            console.log('\n=== FILTERING STORIES FOR MISSING FIELDS ===');
+            console.log('Input stories count:', stories.length);
+            
+            const filteredStories = stories.filter(story => {
+                const descriptionEmpty = isFieldEmpty(story.fields.description, 'description');
+                const criteriaEmpty = isFieldEmpty(story.fields.customfield_10056, 'customfield_10056');
+                const hasMissingFields = descriptionEmpty || criteriaEmpty;
+                
+                console.log(`Story ${story.key}: desc=${descriptionEmpty}, criteria=${criteriaEmpty}, missing=${hasMissingFields}`);
+                
+                return hasMissingFields;
+            });
+            
+            console.log('Filtered stories count:', filteredStories.length);
+            console.log('Filtered stories keys:', filteredStories.map(s => s.key));
+            console.log('=== FILTERING COMPLETE ===\n');
+            
+            return filteredStories;
+        }
+
+        function prepareEmailData(stories) {
+            const emailGroups = {};
+            
+            console.log('\n=== PREPARING EMAIL DATA ===');
+            console.log('Input stories for email preparation:', stories.length);
+            
+            stories.forEach(story => {
+                console.log(`\n--- Story ${story.key} Email Data ---`);
+                console.log('Full story reporter object:', story.fields.reporter);
+                console.log('Reporter email path 1:', story.fields.reporter?.emailAddress);
+                console.log('Reporter email path 2:', story.fields.reporter?.email);
+                console.log('Full story assignee object:', story.fields.assignee);
+                console.log('Assignee email path 1:', story.fields.assignee?.emailAddress);
+                console.log('Assignee email path 2:', story.fields.assignee?.email);
+                
+                // Try multiple possible paths for reporter email
+                let reporterEmail = null;
+                let reporterName = 'Reporter';
+                
+                if (story.fields.reporter) {
+                    reporterEmail = story.fields.reporter.emailAddress || 
+                                  story.fields.reporter.email || 
+                                  story.fields.reporter.name;
+                    reporterName = story.fields.reporter.displayName || 
+                                  story.fields.reporter.name || 
+                                  'Reporter';
+                }
+                
+                console.log('Resolved reporter email:', reporterEmail);
+                console.log('Resolved reporter name:', reporterName);
+                
+                if (!reporterEmail) {
+                    console.log(`⚠️ Skipping story ${story.key} - no reporter email found`);
+                    return;
+                }
+
+                if (!emailGroups[reporterEmail]) {
+                    emailGroups[reporterEmail] = {
+                        reporterName: reporterName,
+                        stories: [],
+                        ccEmails: new Set()
+                    };
+                }
+
+                const descriptionEmpty = isFieldEmpty(story.fields.description, 'description');
+                const criteriaEmpty = isFieldEmpty(story.fields.customfield_10056, 'customfield_10056');
+                
+                // Try multiple possible paths for assignee email
+                let assigneeEmail = null;
+                let assigneeName = 'Unassigned';
+                
+                if (story.fields.assignee) {
+                    assigneeEmail = story.fields.assignee.emailAddress || 
+                                   story.fields.assignee.email || 
+                                   story.fields.assignee.name;
+                    assigneeName = story.fields.assignee.displayName || 
+                                  story.fields.assignee.name || 
+                                  'Assigned User';
+                }
+                
+                console.log('Resolved assignee email:', assigneeEmail);
+                console.log('Resolved assignee name:', assigneeName);
+                
+                // Add assignee email to CC if exists and different from reporter
+                if (assigneeEmail && assigneeEmail !== reporterEmail) {
+                    emailGroups[reporterEmail].ccEmails.add(assigneeEmail);
+                }
+                
+                emailGroups[reporterEmail].stories.push({
+                    key: story.key,
+                    summary: story.fields.summary,
+                    missingDescription: descriptionEmpty,
+                    missingCriteria: criteriaEmpty,
+                    assigneeName: assigneeName
+                });
+                
+                console.log(`✅ Added story ${story.key} to email group for ${reporterEmail}`);
+            });
+
+            const result = Object.entries(emailGroups).map(([email, data]) => ({
+                email,
+                reporterName: data.reporterName,
+                stories: data.stories,
+                ccEmails: Array.from(data.ccEmails)
+            }));
+            
+            console.log('\n=== EMAIL PREPARATION COMPLETE ===');
+            console.log('Email groups created:', result.length);
+            result.forEach((group, index) => {
+                console.log(`Group ${index + 1}: ${group.email} (${group.stories.length} stories, CC: ${group.ccEmails.join(', ') || 'none'})`);
+            });
+            
+            return result;
+        }
+
+        function generateEmailTemplate(reporterName, stories, ccEmails, featureInfo) {
+            const storyList = stories.map(story => {
+                const issues = [];
+                if (story.missingDescription) issues.push('Missing Description');
+                if (story.missingCriteria) issues.push('Missing High Level Acceptance Criteria');
+                
+                return `• ${story.key}: ${story.summary}
+                  Issues: ${issues.join(', ')}
+                  Assignee: ${story.assigneeName}`;
+            }).join('\n\n');
+
+            const featureText = featureInfo ? `for Feature ${featureInfo}` : '';
+            
+            return {
+                subject: 'Action Required: Complete Missing Fields in Your JIRA Stories',
+                body: `Dear ${reporterName},
+
+Please complete the missing information in your stories ${featureText}. The following stories require your attention:
+
+${storyList}
+
+Please complete the missing information to ensure proper story tracking and development workflow.
+
+Required Actions:
+- Add detailed descriptions where missing
+- Complete high level acceptance criteria for all stories
+- Coordinate with assignees as needed
+
+If you have any questions or need assistance, please reach out to your team lead.
+
+Best regards,
+Zuha Mujawar`
+            };
         }
 
         // Initialize with empty state and load fix versions
