@@ -202,6 +202,7 @@
         }
         .story-title { font-size: 1rem; font-weight: 600; color: #2d3748; margin-bottom: 10px; line-height: 1.4; }
         .story-status { font-size: 0.9rem; color: #4a5568; margin-bottom: 8px; }
+        .story-sprint { font-size: 0.9rem; color: #1e3a8a; margin-bottom: 8px; }
         .story-assignee { font-size: 0.9rem; color: #718096; }
         .bugs-section { margin-top: 15px; padding-top: 15px; border-top: 1px solid #e2e8f0; }
         .bugs-title {
@@ -286,6 +287,108 @@
 
     <script>
         let searchData = [];
+        const SPRINT_FIELD_FALLBACK = 'customfield_10020';
+        let sprintFieldId = SPRINT_FIELD_FALLBACK;
+        let sprintFieldReady = initializeSprintFieldId();
+        const sprintFieldCache = new Map();
+        let currentSearchController = null;
+        let currentSearchStream = null;
+        let currentSearchAccumulator = [];
+        let currentSearchRequestId = null;
+        let currentSearchMeta = null;
+        let lastExecutedJql = '';
+        let searchCancelled = false;
+        const loadingStateElement = document.getElementById('loadingState');
+        const defaultLoadingHtml = loadingStateElement ? loadingStateElement.innerHTML : '';
+
+        function resetLoadingState() {
+            if (loadingStateElement) {
+                loadingStateElement.innerHTML = defaultLoadingHtml;
+            }
+        }
+
+        function cancelOngoingSearch(reason = 'Search cancelled by user action') {
+            if (currentSearchController) {
+                try {
+                    currentSearchController.abort();
+                } catch (error) {
+                    console.warn('Abort controller error during cancel:', error);
+                }
+                currentSearchController = null;
+            }
+            if (currentSearchStream) {
+                try {
+                    currentSearchStream.close();
+                } catch (error) {
+                    console.warn('Stream close error during cancel:', error);
+                }
+                currentSearchStream = null;
+            }
+            currentSearchAccumulator = [];
+            currentSearchRequestId = null;
+            currentSearchMeta = null;
+            window.currentSearchMeta = null;
+            if (!searchCancelled) {
+                console.log(reason);
+            }
+            searchCancelled = true;
+            showLoading(false);
+        }
+
+        function prepareNewSearchController() {
+            if (currentSearchController) {
+                try {
+                    currentSearchController.abort();
+                } catch (error) {
+                    console.warn('Abort controller error while preparing new search:', error);
+                }
+            }
+            if (currentSearchStream) {
+                try {
+                    currentSearchStream.close();
+                } catch (error) {
+                    console.warn('Stream close error while preparing new search:', error);
+                }
+                currentSearchStream = null;
+            }
+            searchCancelled = false;
+            currentSearchController = new AbortController();
+            currentSearchAccumulator = [];
+            currentSearchRequestId = null;
+            return currentSearchController;
+        }
+
+        function hasSearchBeenCancelled() {
+            return searchCancelled || (currentSearchController && currentSearchController.signal.aborted);
+        }
+
+        async function initializeSprintFieldId() {
+            try {
+                console.log('Resolving sprint field id from metadata');
+                const response = await fetch('http://localhost:3000/api/jira/field-metadata');
+                if (!response.ok) {
+                    throw new Error(`Metadata request failed with status ${response.status}`);
+                }
+
+                const fields = await response.json();
+                if (Array.isArray(fields)) {
+                    const sprintField = fields.find(field => field.name === 'Sprint');
+                    if (sprintField && sprintField.id) {
+                        sprintFieldId = sprintField.id;
+                        console.log('Sprint field resolved to:', sprintFieldId);
+                        return sprintFieldId;
+                    }
+                }
+
+                sprintFieldId = SPRINT_FIELD_FALLBACK;
+                console.warn('Sprint field not resolved from metadata; using fallback:', sprintFieldId);
+                return sprintFieldId;
+            } catch (error) {
+                sprintFieldId = SPRINT_FIELD_FALLBACK;
+                console.warn('Failed to resolve sprint field id; using fallback:', sprintFieldId, error);
+                return sprintFieldId;
+            }
+        }
 
         // Function to open JIRA issue in new tab
         function openJiraIssue(issueKey) {
@@ -304,35 +407,658 @@
                 return;
             }
 
+            lastExecutedJql = jql;
+            currentSearchMeta = null;
+            window.currentSearchMeta = null;
+
+            const controller = prepareNewSearchController();
+            const { signal } = controller;
+
+            resetLoadingState();
             showLoading(true);
             hideResults();
             hideEmptyState();
 
             try {
-                console.log('Making search request to:', `http://localhost:3000/search?jql=${encodeURIComponent(jql)}`);
-                const response = await fetch(`http://localhost:3000/search?jql=${encodeURIComponent(jql)}`);
-                console.log('Search response status:', response.status);
-                const data = await response.json();
-                console.log('Search response data:', data);
-                
-                if (data.error) {
-                    throw new Error(data.error);
+                await sprintFieldReady;
+                const includeFields = new Set([SPRINT_FIELD_FALLBACK]);
+                if (sprintFieldId) {
+                    includeFields.add(sprintFieldId);
                 }
 
-                searchData = data.issues || [];
-                window.currentSearchData = searchData; // Store globally for email function
-                window.currentEpicsWithStories = {}; // Store epic-story relationships
-                await processAndDisplayResults();
-                
+                const payload = {
+                    jql,
+                    maxResults: 100,
+                    includeFields: Array.from(includeFields)
+                };
+
+                console.log('Starting async search with payload:', payload);
+                const response = await fetch('http://localhost:3000/async/search', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(payload),
+                    signal
+                });
+
+                console.log('Async search response status:', response.status);
+                const meta = await response.json();
+                console.log('Async search response body:', meta);
+
+                if (meta.error) {
+                    throw new Error(meta.error);
+                }
+
+                if (response.status === 200 && meta?.data) {
+                    console.log('Async search served from cache, processing immediately.');
+                    await finalizeSearchData(meta.data, {
+                        signal,
+                        requestId: meta.requestId,
+                        source: 'cache',
+                        meta: meta.meta
+                    });
+                    if (!hasSearchBeenCancelled()) {
+                        showLoading(false);
+                    }
+                    return;
+                }
+
+                if (response.status === 202 && meta?.requestId) {
+                    console.log('Async search pending, attaching to stream.');
+                    attachSearchStream(meta, { signal });
+                    return;
+                }
+
+                throw new Error(`Unexpected async search response: ${response.status}`);
             } catch (error) {
-                console.error('Search error:', error);
-                showError(error.message);
+                if (error.name === 'AbortError' || hasSearchBeenCancelled()) {
+                    console.log('Search aborted:', error.message || error);
+                } else {
+                    console.error('Search error:', error);
+                    showError(error.message);
+                }
             } finally {
+                if (!hasSearchBeenCancelled() && !currentSearchStream) {
+                    showLoading(false);
+                }
+            }
+        }
+
+        function buildProxyUrl(pathOrUrl) {
+            if (!pathOrUrl) {
+                return null;
+            }
+            if (/^https?:/i.test(pathOrUrl)) {
+                return pathOrUrl;
+            }
+            const normalized = pathOrUrl.startsWith('/') ? pathOrUrl : `/${pathOrUrl}`;
+            return `http://localhost:3000${normalized}`;
+        }
+
+        function updateLoadingProgress(title, subtitle = 'Preparing Jira results...') {
+            if (!loadingStateElement || loadingStateElement.style.display !== 'block') {
+                return;
+            }
+            loadingStateElement.innerHTML = `
+                <div class="spinner"></div>
+                <h3>${title}</h3>
+                <p>${subtitle}</p>
+            `;
+        }
+
+        async function finalizeSearchData(rawData, context = {}) {
+            if (hasSearchBeenCancelled()) {
+                console.log('Skipping finalizeSearchData because search was cancelled.');
+                return;
+            }
+
+            const { signal } = context;
+            const normalizedData = rawData && typeof rawData === 'object' && !Array.isArray(rawData)
+                ? rawData
+                : { issues: Array.isArray(rawData) ? rawData : [] };
+            const issueArray = Array.isArray(normalizedData.issues) ? normalizedData.issues : [];
+            console.log(`Finalizing search with ${issueArray.length} issues`, {
+                ...context,
+                total: normalizedData.total,
+                startAt: normalizedData.startAt,
+                maxResults: normalizedData.maxResults
+            });
+
+            const enrichedIssues = await ensureEpicsPresent(issueArray, { signal });
+            if (hasSearchBeenCancelled()) {
+                console.log('Finalization aborted after enrichment due to cancellation.');
+                return;
+            }
+
+            if (context.merge && Array.isArray(searchData) && searchData.length > 0) {
+                searchData = mergeIssuesByKey(searchData, enrichedIssues);
+            } else {
+                searchData = enrichedIssues;
+            }
+            window.currentSearchData = searchData;
+            window.currentEpicsWithStories = {};
+            await processAndDisplayResults({ signal });
+
+            const metaSource = context.meta || {};
+            const totalIssues = Number.isFinite(metaSource.total)
+                ? metaSource.total
+                : (Number.isFinite(normalizedData.total) ? normalizedData.total : searchData.length);
+            const startAt = Number.isFinite(metaSource.startAt)
+                ? metaSource.startAt
+                : (Number.isFinite(normalizedData.startAt) ? normalizedData.startAt : 0);
+            const maxResults = Number.isFinite(metaSource.maxResults)
+                ? metaSource.maxResults
+                : (Number.isFinite(normalizedData.maxResults) ? normalizedData.maxResults : issueArray.length);
+            const nextPageToken = typeof metaSource.nextPageToken === 'string' && metaSource.nextPageToken.length > 0
+                ? metaSource.nextPageToken
+                : (typeof normalizedData.nextPageToken === 'string' && normalizedData.nextPageToken.length > 0
+                    ? normalizedData.nextPageToken
+                    : null);
+            const nextStartAt = nextPageToken
+                ? searchData.length
+                : (Number.isFinite(metaSource.nextStartAt)
+                    ? metaSource.nextStartAt
+                    : searchData.length);
+            const aggregatedMeta = {
+                total: totalIssues,
+                startAt,
+                maxResults,
+                pageSize: issueArray.length,
+                nextStartAt,
+                nextPageToken,
+                isLast: typeof metaSource.isLast === 'boolean'
+                    ? metaSource.isLast
+                    : (typeof normalizedData.isLast === 'boolean' ? normalizedData.isLast : undefined),
+                hasMore: typeof metaSource.hasMore === 'boolean'
+                    ? metaSource.hasMore
+                    : (nextPageToken ? true : (typeof metaSource.isLast === 'boolean'
+                        ? !metaSource.isLast
+                        : (typeof normalizedData.isLast === 'boolean'
+                            ? !normalizedData.isLast
+                            : (Number.isFinite(totalIssues) && totalIssues > 0
+                                ? nextStartAt < totalIssues
+                                : false))))
+            };
+            currentSearchMeta = aggregatedMeta;
+            window.currentSearchMeta = currentSearchMeta;
+
+            currentSearchAccumulator = [];
+            currentSearchRequestId = null;
+        }
+
+        function attachSearchStream(meta, options = {}) {
+            if (hasSearchBeenCancelled()) {
+                console.log('Skipping stream attachment because search was cancelled.');
+                return;
+            }
+
+            const streamUrl = buildProxyUrl(meta?.streamUrl);
+            if (!streamUrl || !meta?.requestId) {
+                showError('Unable to attach to search stream.');
+                showLoading(false);
+                return;
+            }
+
+            currentSearchRequestId = meta.requestId;
+            currentSearchAccumulator = [];
+
+            updateLoadingProgress('Preparing Jira results...', 'Streaming data from server');
+
+            try {
+                currentSearchStream = new EventSource(streamUrl);
+            } catch (error) {
+                console.error('Failed to open EventSource:', error);
+                fetchPollingSnapshot(meta, options);
+                return;
+            }
+
+            const { signal } = options;
+
+            currentSearchStream.onmessage = async (event) => {
+                if (hasSearchBeenCancelled() || currentSearchRequestId !== meta.requestId) {
+                    return;
+                }
+
+                try {
+                    const payload = JSON.parse(event.data || '{}');
+                    if (!payload?.type) {
+                        return;
+                    }
+
+                    switch (payload.type) {
+                        case 'status':
+                            if (payload.message) {
+                                updateLoadingProgress(payload.message, 'Streaming data from Jira');
+                            }
+                            break;
+                        case 'issuesChunk':
+                            if (Array.isArray(payload.chunk)) {
+                                currentSearchAccumulator.push(...payload.chunk);
+                                updateLoadingProgress(
+                                    `Received ${currentSearchAccumulator.length} issues`,
+                                    'Continuing to stream results...'
+                                );
+                            }
+                            break;
+                        case 'complete': {
+                            console.log('Stream complete payload received.');
+                            if (currentSearchStream) {
+                                try {
+                                    currentSearchStream.close();
+                                } catch (closeError) {
+                                    console.warn('Stream close error after completion:', closeError);
+                                }
+                                currentSearchStream = null;
+                            }
+
+                            const finalIssues = Array.isArray(payload?.data?.issues)
+                                ? payload.data.issues
+                                : currentSearchAccumulator;
+                            const finalPayload = payload?.data && typeof payload.data === 'object'
+                                ? payload.data
+                                : { issues: finalIssues };
+                            if (!Array.isArray(finalPayload.issues)) {
+                                finalPayload.issues = finalIssues;
+                            }
+
+                            try {
+                                await finalizeSearchData(finalPayload, {
+                                    signal,
+                                    requestId: meta.requestId,
+                                    source: 'stream',
+                                    meta: payload.meta,
+                                    merge: options.merge === true
+                                });
+                                if (!hasSearchBeenCancelled()) {
+                                    showLoading(false);
+                                }
+                            } catch (finalizeError) {
+                                console.error('Failed to finalize streamed data:', finalizeError);
+                                showError(finalizeError.message || 'Failed to finalize results');
+                                showLoading(false);
+                            }
+                            break;
+                        }
+                        case 'error':
+                            console.error('Stream reported error:', payload);
+                            if (currentSearchStream) {
+                                try {
+                                    currentSearchStream.close();
+                                } catch (closeError) {
+                                    console.warn('Stream close error after error event:', closeError);
+                                }
+                                currentSearchStream = null;
+                            }
+                            showError(payload.message || 'Search failed in background');
+                            showLoading(false);
+                            break;
+                        default:
+                            console.log('Unhandled stream event type:', payload.type, payload);
+                    }
+                } catch (parseError) {
+                    console.error('Failed to parse stream event:', parseError, event.data);
+                }
+            };
+
+            currentSearchStream.onerror = (eventError) => {
+                console.error('Stream connection error:', eventError);
+                if (currentSearchStream) {
+                    try {
+                        currentSearchStream.close();
+                    } catch (closeError) {
+                        console.warn('Stream close error on connection failure:', closeError);
+                    }
+                    currentSearchStream = null;
+                }
+
+                if (!hasSearchBeenCancelled()) {
+                    updateLoadingProgress('Switching to polling...', 'Stream interrupted, retrying via polling');
+                    fetchPollingSnapshot(meta, { signal, merge: options.merge === true });
+                }
+            };
+        }
+
+        async function fetchPollingSnapshot(meta, options = {}) {
+            if (hasSearchBeenCancelled()) {
+                return;
+            }
+
+            const pollUrl = buildProxyUrl(meta?.pollUrl);
+            if (!pollUrl || !meta?.requestId) {
+                showError('Unable to poll for search progress.');
+                showLoading(false);
+                return;
+            }
+
+            try {
+                const response = await fetch(pollUrl, options.signal ? { signal: options.signal } : {});
+                const payload = await response.json();
+
+                if (response.status >= 400) {
+                    throw new Error(payload?.error?.message || payload?.error || `Polling failed with status ${response.status}`);
+                }
+
+                if (payload.status === 'complete' && payload.data) {
+                    await finalizeSearchData(payload.data, {
+                        signal: options.signal,
+                        requestId: meta.requestId,
+                        source: 'poll',
+                        meta: payload.meta,
+                        merge: options.merge === true
+                    });
+                    if (!hasSearchBeenCancelled()) {
+                        showLoading(false);
+                    }
+                    return;
+                }
+
+                if (payload.status === 'error') {
+                    showError(payload?.error?.message || 'Background search failed');
+                    showLoading(false);
+                    return;
+                }
+
+                if (currentSearchRequestId !== meta.requestId) {
+                    return;
+                }
+
+                updateLoadingProgress(
+                    `Collected ${payload.collectedCount || 0} issues`,
+                    'Continuing background processing...'
+                );
+
+                if (hasSearchBeenCancelled()) {
+                    return;
+                }
+
+                setTimeout(() => {
+                    if (!hasSearchBeenCancelled() && currentSearchRequestId === meta.requestId) {
+                        fetchPollingSnapshot(meta, options);
+                    }
+                }, 1000);
+            } catch (error) {
+                if (error.name === 'AbortError' || hasSearchBeenCancelled()) {
+                    return;
+                }
+                console.error('Polling snapshot error:', error);
+                showError(error.message || 'Unable to retrieve search progress');
                 showLoading(false);
             }
         }
 
-        async function processAndDisplayResults() {
+        async function requestNextSearchPage() {
+            if (!currentSearchMeta || !currentSearchMeta.hasMore) {
+                showDashboardToast('All available results are already loaded.', 'info');
+                return;
+            }
+
+            if (!lastExecutedJql) {
+                showDashboardToast('No previous search to extend.', 'warning');
+                return;
+            }
+
+            const nextPageToken = typeof currentSearchMeta.nextPageToken === 'string' && currentSearchMeta.nextPageToken.length > 0
+                ? currentSearchMeta.nextPageToken
+                : null;
+            const nextStartAt = Number.isFinite(currentSearchMeta.nextStartAt)
+                ? currentSearchMeta.nextStartAt
+                : (Array.isArray(searchData) ? searchData.length : 0);
+
+            const paginationContainer = document.getElementById('asyncPaginationContainer');
+            if (paginationContainer) {
+                paginationContainer.innerHTML = '<div style="color: #4b5563; font-size: 13px;">Loading additional issues...</div>';
+            }
+
+            const controller = prepareNewSearchController();
+            const { signal } = controller;
+
+            showLoading(true);
+            const loadingTitle = nextPageToken
+                ? 'Loading more results from Jira'
+                : `Loading more results starting at ${nextStartAt}`;
+            updateLoadingProgress(loadingTitle, 'Fetching next page from Jira');
+
+            try {
+                await sprintFieldReady;
+                const includeFields = new Set([SPRINT_FIELD_FALLBACK]);
+                if (sprintFieldId) {
+                    includeFields.add(sprintFieldId);
+                }
+
+                const payload = {
+                    jql: lastExecutedJql,
+                    maxResults: 100,
+                    includeFields: Array.from(includeFields)
+                };
+
+                if (nextPageToken) {
+                    payload.nextPageToken = nextPageToken;
+                    payload.startAt = nextStartAt;
+                } else {
+                    payload.startAt = nextStartAt;
+                }
+
+                console.log('Requesting next search page with payload:', payload);
+
+                const response = await fetch('http://localhost:3000/async/search', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(payload),
+                    signal
+                });
+
+                const meta = await response.json();
+                console.log('Next page async response:', meta);
+
+                if (meta.error) {
+                    throw new Error(meta.error);
+                }
+
+                if (response.status === 200 && meta?.data) {
+                    await finalizeSearchData(meta.data, {
+                        signal,
+                        requestId: meta.requestId,
+                        source: 'cache:page',
+                        meta: meta.meta,
+                        merge: true
+                    });
+                    if (!hasSearchBeenCancelled()) {
+                        showLoading(false);
+                    }
+                    return;
+                }
+
+                if (response.status === 202 && meta?.requestId) {
+                    attachSearchStream(meta, { signal, merge: true });
+                    return;
+                }
+
+                throw new Error(`Unexpected async search response for pagination: ${response.status}`);
+            } catch (error) {
+                if (error.name === 'AbortError' || hasSearchBeenCancelled()) {
+                    console.log('Pagination request aborted:', error.message || error);
+                } else {
+                    console.error('Failed to load additional results:', error);
+                    showDashboardToast(error.message || 'Unable to load more results', 'error');
+                }
+            } finally {
+                if (!hasSearchBeenCancelled() && !currentSearchStream) {
+                    showLoading(false);
+                }
+            }
+        }
+
+        function updatePaginationControls(epicCount) {
+            const container = document.getElementById('asyncPaginationContainer');
+            if (!container) {
+                return;
+            }
+
+            if (currentSearchMeta && currentSearchMeta.hasMore) {
+                const loadedIssues = Array.isArray(searchData) ? searchData.length : epicCount;
+                const totalIsKnown = Number.isFinite(currentSearchMeta.total) && currentSearchMeta.total >= 0;
+                const totalText = totalIsKnown
+                    ? `${currentSearchMeta.total}`
+                    : 'more';
+                const progressText = totalIsKnown
+                    ? `Loaded ${loadedIssues} of ${totalText} issues so far`
+                    : `Loaded ${loadedIssues} issues so far (more available)`;
+                container.innerHTML = `
+                    <button class="load-more-button" onclick="requestNextSearchPage()" style="
+                        background: #2563eb;
+                        color: white;
+                        border: none;
+                        border-radius: 8px;
+                        padding: 10px 18px;
+                        font-weight: 600;
+                        cursor: pointer;
+                        box-shadow: 0 10px 25px rgba(37, 99, 235, 0.25);
+                        transition: transform 0.2s ease, box-shadow 0.2s ease;
+                    " onmouseover="this.style.transform='translateY(-1px)'; this.style.boxShadow='0 12px 28px rgba(37,99,235,0.3)';" onmouseout="this.style.transform=''; this.style.boxShadow='0 10px 25px rgba(37,99,235,0.25)';">
+                        Load More Results
+                    </button>
+                    <div style="margin-top: 8px; color: #4b5563; font-size: 13px;">
+                        ${progressText}
+                    </div>
+                `;
+            } else if (currentSearchMeta && Number.isFinite(currentSearchMeta.total)) {
+                container.innerHTML = `
+                    <div style="color: #4b5563; font-size: 13px;">
+                        Showing all ${currentSearchMeta.total} issues
+                    </div>
+                `;
+            } else {
+                container.innerHTML = '';
+            }
+        }
+
+        function groupStoriesByEpic(stories) {
+            const map = new Map();
+            if (!Array.isArray(stories)) {
+                return map;
+            }
+
+            for (const story of stories) {
+                const epicKey = story?.fields?.customfield_10014 || story?.fields?.parent?.key;
+                if (!epicKey) {
+                    continue;
+                }
+                if (!map.has(epicKey)) {
+                    map.set(epicKey, []);
+                }
+                map.get(epicKey).push(story);
+            }
+
+            return map;
+        }
+
+        function mergeIssuesByKey(existing = [], incoming = []) {
+            const merged = [];
+            const seen = new Set();
+
+            for (const issue of [...existing, ...incoming]) {
+                const issueKey = issue?.key;
+                if (!issueKey || seen.has(issueKey)) {
+                    continue;
+                }
+                merged.push(issue);
+                seen.add(issueKey);
+            }
+
+            return merged;
+        }
+
+        async function ensureEpicsPresent(issues = [], options = {}) {
+            if (!Array.isArray(issues) || issues.length === 0 || hasSearchBeenCancelled()) {
+                return issues;
+            }
+
+            const { signal } = options;
+            const fetchOptions = signal ? { signal } : {};
+            const isEpicIssue = (issue) => {
+                const typeName = issue?.fields?.issuetype?.name;
+                return typeof typeName === 'string' && typeName.toLowerCase().includes('epic');
+            };
+
+            const existingEpicKeys = new Set();
+            const referencedEpicKeys = new Set();
+
+            for (const issue of issues) {
+                if (!issue) {
+                    continue;
+                }
+
+                if (issue.key && isEpicIssue(issue)) {
+                    existingEpicKeys.add(issue.key);
+                }
+
+                const epicLink = issue?.fields?.customfield_10014;
+                if (epicLink) {
+                    referencedEpicKeys.add(epicLink);
+                }
+
+                const parentKey = issue?.fields?.parent?.key;
+                if (parentKey) {
+                    referencedEpicKeys.add(parentKey);
+                }
+            }
+
+            const keysToFetch = [...referencedEpicKeys].filter(key => key && !existingEpicKeys.has(key));
+            if (keysToFetch.length === 0 || hasSearchBeenCancelled()) {
+                return issues;
+            }
+
+            const fetchedEpics = [];
+            const chunkSize = 20;
+
+            try {
+                const epicChunks = chunkArray(keysToFetch, chunkSize);
+                for (const chunk of epicChunks) {
+                    if (!Array.isArray(chunk) || chunk.length === 0 || hasSearchBeenCancelled()) {
+                        break;
+                    }
+
+                    const formattedKeys = chunk.map(key => `"${key}"`).join(', ');
+                    const jql = `key in (${formattedKeys}) AND issuetype in ("Epic", "Epic (Feature)")`;
+                    const searchUrl = new URL('http://localhost:3000/search');
+                    searchUrl.searchParams.set('jql', jql);
+
+                    const response = await fetch(searchUrl, fetchOptions);
+                    if (!response.ok) {
+                        throw new Error(`Epic fetch failed with status ${response.status}`);
+                    }
+
+                    const data = await response.json();
+                    if (Array.isArray(data?.issues) && data.issues.length > 0) {
+                        fetchedEpics.push(...data.issues);
+                    }
+                }
+            } catch (error) {
+                if (error?.name === 'AbortError' || hasSearchBeenCancelled()) {
+                    console.log('Epic enrichment aborted.');
+                    return issues;
+                }
+                console.warn('Unable to enrich results with epics:', error);
+                return issues;
+            }
+
+            if (fetchedEpics.length === 0) {
+                return issues;
+            }
+
+            return mergeIssuesByKey(issues, fetchedEpics);
+        }
+
+        async function processAndDisplayResults(options = {}) {
+
+            if (hasSearchBeenCancelled()) {
+                console.log('Skipping result rendering because the search was cancelled.');
+                return;
+            }
+
             if (searchData.length === 0) {
                 showEmptyResults();
                 return;
@@ -353,43 +1079,31 @@
             console.log('Filtered epics:', epics.length);
             console.log('Filtered stories:', stories.length);
 
-            let resultsHtml = '';
+            await enrichStoriesWithSprint(stories, options);
 
-            // Add statistics summary
-            resultsHtml += `
+            if (hasSearchBeenCancelled()) {
+                console.log('Stopped after sprint enrichment due to cancellation.');
+                return;
+            }
+
+            const initialStoryMap = groupStoriesByEpic(stories);
+            const resultsContent = document.getElementById('resultsContent');
+            if (!resultsContent) {
+                console.warn('Results container not found.');
+                return;
+            }
+
+            let resultsHtml = `
                 <div class="stats-summary">
                     <div class="stat-item">
                         <div class="stat-number">${epics.length}</div>
                         <div class="stat-label">Features (Epics)</div>
                     </div>
                 </div>
+                <div id="epicCardsContainer"></div>
+                <div id="asyncPaginationContainer" style="margin-top: 24px;"></div>
             `;
 
-            // Process epics with their stories (optimized for speed)
-            let processedCount = 0;
-            for (const epic of epics) {
-                processedCount++;
-                
-                // Update loading message
-                const loadingDiv = document.getElementById('loadingState');
-                if (loadingDiv.style.display === 'block') {
-                    loadingDiv.innerHTML = `
-                        <div class="spinner"></div>
-                        <h3>Processing Epics... (${processedCount}/${epics.length})</h3>
-                        <p>Please wait while we fetch epic details</p>
-                    `;
-                }
-                
-                const epicStories = await getStoriesForEpic(epic.key);
-                const bugsForEpic = await getBugsForEpic(epic.key, epicStories);
-                
-                // Store epic-story relationships for email function
-                window.currentEpicsWithStories[epic.key] = epicStories;
-                
-                resultsHtml += createEpicCard(epic, epicStories, bugsForEpic);
-            }
-
-            // Process orphaned stories (stories without epics)
             const orphanedStories = stories.filter(story => 
                 !story.fields.customfield_10014 || 
                 !epics.some(epic => epic.key === story.fields.customfield_10014)
@@ -399,34 +1113,593 @@
                 resultsHtml += createOrphanedStoriesCard(orphanedStories);
             }
 
-            document.getElementById('resultsContent').innerHTML = resultsHtml;
+            if (hasSearchBeenCancelled()) {
+                console.log('Skipping UI update because the search was cancelled.');
+                return;
+            }
+
+            resultsContent.innerHTML = resultsHtml;
+
+            const epicCardsContainer = document.getElementById('epicCardsContainer');
+            if (!epicCardsContainer) {
+                console.warn('Epic cards container not found.');
+                return;
+            }
+
+            const epicStates = new Map();
+            let processedCount = 0;
+
+            for (const epic of epics) {
+                if (hasSearchBeenCancelled()) {
+                    console.log('Halting epic processing because the search was cancelled.');
+                    return;
+                }
+
+                processedCount++;
+                const loadingDiv = document.getElementById('loadingState');
+                if (!hasSearchBeenCancelled() && loadingDiv && loadingDiv.style.display === 'block') {
+                    loadingDiv.innerHTML = `
+                        <div class="spinner"></div>
+                        <h3>Processing Epics... (${processedCount}/${epics.length})</h3>
+                        <p>Please wait while we fetch epic details</p>
+                    `;
+                }
+
+                const initialStories = mergeIssuesByKey(initialStoryMap.get(epic.key) || []);
+                const state = {
+                    stories: initialStories,
+                    storiesLoading: true,
+                    bugs: [],
+                    bugsLoading: true
+                };
+                epicStates.set(epic.key, state);
+                if (window.currentEpicsWithStories) {
+                    window.currentEpicsWithStories[epic.key] = initialStories;
+                }
+
+                const cardHtml = createEpicCard(epic, initialStories, [], {
+                    storiesLoading: state.storiesLoading,
+                    bugsLoading: state.bugsLoading
+                });
+                epicCardsContainer.insertAdjacentHTML('beforeend', cardHtml);
+            }
+
             showResults();
+
+            if (epics.length === 0) {
+                return;
+            }
+
+            const updateStoriesForEpics = async () => {
+                try {
+                    const epicStoriesMap = await fetchStoriesForEpics(epics, options);
+                    if (hasSearchBeenCancelled()) {
+                        console.log('Skipping story updates because the search was cancelled.');
+                        return;
+                    }
+
+                    for (const epic of epics) {
+                        const state = epicStates.get(epic.key);
+                        if (!state) {
+                            continue;
+                        }
+                        state.stories = mergeIssuesByKey(state.stories, epicStoriesMap.get(epic.key) || []);
+                        state.storiesLoading = false;
+                        if (window.currentEpicsWithStories) {
+                            window.currentEpicsWithStories[epic.key] = state.stories;
+                        }
+                        updateEpicStoriesUI(epic.key, state);
+                    }
+
+                    for (const [epicKey, state] of epicStates.entries()) {
+                        if (!epicStoriesMap.has(epicKey)) {
+                            state.storiesLoading = false;
+                            updateEpicStoriesUI(epicKey, state);
+                        }
+                    }
+                } catch (error) {
+                    if (error?.name === 'AbortError' || hasSearchBeenCancelled()) {
+                        console.log('Story fetch update aborted.');
+                        return;
+                    }
+                    console.error('Failed to fetch stories for epics:', error);
+                    for (const [epicKey, state] of epicStates.entries()) {
+                        state.storiesLoading = false;
+                        updateEpicStoriesUI(epicKey, state);
+                    }
+                }
+            };
+
+            const updateBugsForEpics = async () => {
+                try {
+                    const epicBugsMap = await fetchBugsForEpics(epics, options);
+                    if (hasSearchBeenCancelled()) {
+                        console.log('Skipping bug updates because the search was cancelled.');
+                        return;
+                    }
+
+                    for (const epic of epics) {
+                        const state = epicStates.get(epic.key);
+                        if (!state) {
+                            continue;
+                        }
+                        state.bugs = mergeIssuesByKey(state.bugs, epicBugsMap.get(epic.key) || []);
+                        state.bugsLoading = false;
+                        updateEpicBugsUI(epic.key, state);
+                    }
+
+                    for (const [epicKey, state] of epicStates.entries()) {
+                        if (!epicBugsMap.has(epicKey)) {
+                            state.bugsLoading = false;
+                            updateEpicBugsUI(epicKey, state);
+                        }
+                    }
+                } catch (error) {
+                    if (error?.name === 'AbortError' || hasSearchBeenCancelled()) {
+                        console.log('Bug fetch update aborted.');
+                        return;
+                    }
+                    console.error('Failed to fetch bugs for epics:', error);
+                    for (const [epicKey, state] of epicStates.entries()) {
+                        state.bugsLoading = false;
+                        updateEpicBugsUI(epicKey, state);
+                    }
+                }
+            };
+
+            updateStoriesForEpics();
+            updateBugsForEpics();
+            updatePaginationControls(epics.length);
         }
 
-        async function getStoriesForEpic(epicKey) {
+        function chunkArray(items, size) {
+            if (!Array.isArray(items) || size <= 0) {
+                return [];
+            }
+            const chunks = [];
+            for (let index = 0; index < items.length; index += size) {
+                chunks.push(items.slice(index, index + size));
+            }
+            return chunks;
+        }
+
+        async function fetchStoriesForEpics(epics, options = {}) {
+            const storyMap = new Map();
+
+            if (!Array.isArray(epics) || epics.length === 0) {
+                return storyMap;
+            }
+
+            const epicKeys = [...new Set(epics.map(epic => epic?.key).filter(Boolean))];
+            epicKeys.forEach(key => storyMap.set(key, []));
+
+            if (epicKeys.length === 0) {
+                return storyMap;
+            }
+
+            const { signal } = options;
+            const fetchOptions = signal ? { signal } : {};
+            const collectedStories = [];
+            const chunkSize = 20;
+
+            try {
+                await sprintFieldReady;
+
+                const chunkPromises = chunkArray(epicKeys, chunkSize).map(async chunk => {
+                    if (hasSearchBeenCancelled()) {
+                        return [];
+                    }
+
+                    const formattedKeys = chunk.map(key => `"${key}"`).join(', ');
+                    const jql = `"Epic Link" in (${formattedKeys}) AND issuetype = Story`;
+                    const searchUrl = new URL('http://localhost:3000/search');
+                    searchUrl.searchParams.set('jql', jql);
+
+                    const includeFields = new Set([SPRINT_FIELD_FALLBACK]);
+                    if (sprintFieldId) {
+                        includeFields.add(sprintFieldId);
+                    }
+                    searchUrl.searchParams.set('includeFields', Array.from(includeFields).join(','));
+
+                    const response = await fetch(searchUrl, fetchOptions);
+                    if (!response.ok) {
+                        throw new Error(`Story batch fetch failed with status ${response.status}`);
+                    }
+
+                    const data = await response.json();
+                    return data.issues || [];
+                });
+
+                const chunkResults = await Promise.all(chunkPromises);
+
+                if (hasSearchBeenCancelled()) {
+                    return storyMap;
+                }
+                chunkResults.forEach(issues => {
+                    if (Array.isArray(issues) && issues.length > 0) {
+                        collectedStories.push(...issues);
+                    }
+                });
+
+                await enrichStoriesWithSprint(collectedStories, options);
+
+                for (const story of collectedStories) {
+                    const epicLink = story?.fields?.customfield_10014 || story?.fields?.parent?.key;
+                    if (!epicLink) {
+                        continue;
+                    }
+                    if (!storyMap.has(epicLink)) {
+                        storyMap.set(epicLink, []);
+                    }
+                    storyMap.get(epicLink).push(story);
+                }
+
+                return storyMap;
+            } catch (error) {
+                console.warn('Batch story fetch failed, falling back to per-epic strategy:', error);
+                return fetchStoriesForEpicsSerial(epics, options, storyMap);
+            }
+        }
+
+        async function fetchStoriesForEpicsSerial(epics, options = {}, seedMap = new Map()) {
+            const storyMap = new Map(seedMap);
+
+            if (!Array.isArray(epics) || epics.length === 0) {
+                return storyMap;
+            }
+
+            const chunkSize = 5;
+            for (let index = 0; index < epics.length && !hasSearchBeenCancelled(); index += chunkSize) {
+                const chunk = epics.slice(index, index + chunkSize);
+                const chunkPromises = chunk.map(epic => (async () => {
+                    const stories = await fetchStoriesForSingleEpic(epic.key, options);
+                    return { key: epic.key, stories };
+                })());
+
+                const settledResults = await Promise.allSettled(chunkPromises);
+
+                settledResults.forEach(result => {
+                    if (result.status === 'fulfilled' && result.value) {
+                        const key = result.value.key;
+                        if (!storyMap.has(key)) {
+                            storyMap.set(key, []);
+                        }
+                        storyMap.set(key, result.value.stories || []);
+                    } else if (result.status === 'rejected') {
+                        const reason = result.reason;
+                        if (reason?.name === 'AbortError' || hasSearchBeenCancelled()) {
+                            console.log('Story chunk fetch aborted.');
+                        } else {
+                            console.error('Story chunk fetch failed:', reason);
+                        }
+                    }
+                });
+            }
+
+            return storyMap;
+        }
+
+        async function fetchStoriesForSingleEpic(epicKey, options = {}) {
+            if (hasSearchBeenCancelled()) {
+                return [];
+            }
+
             try {
                 const jql = `"Epic Link" = ${epicKey} AND issuetype = Story`;
-                const response = await fetch(`http://localhost:3000/search?jql=${encodeURIComponent(jql)}`);
+                await sprintFieldReady;
+                if (hasSearchBeenCancelled()) {
+                    return [];
+                }
+
+                const searchUrl = new URL('http://localhost:3000/search');
+                searchUrl.searchParams.set('jql', jql);
+                const includeFields = new Set([SPRINT_FIELD_FALLBACK]);
+                if (sprintFieldId) {
+                    includeFields.add(sprintFieldId);
+                }
+                searchUrl.searchParams.set('includeFields', Array.from(includeFields).join(','));
+
+                const { signal } = options;
+                const fetchOptions = signal ? { signal } : {};
+                const response = await fetch(searchUrl, fetchOptions);
+                if (!response.ok) {
+                    throw new Error(`Story fetch failed with status ${response.status}`);
+                }
+
                 const data = await response.json();
-                return data.issues || [];
+                const stories = data.issues || [];
+                await enrichStoriesWithSprint(stories, options);
+                return stories;
             } catch (error) {
+                if (error.name === 'AbortError' || hasSearchBeenCancelled()) {
+                    console.log(`Story fetch aborted for epic ${epicKey}.`);
+                    return [];
+                }
                 console.error(`Error fetching stories for epic ${epicKey}:`, error);
                 return [];
             }
         }
 
-        async function getBugsForEpic(epicKey, stories) {
+        async function fetchBugsForEpics(epics, options = {}) {
+            const bugMap = new Map();
+
+            if (!Array.isArray(epics) || epics.length === 0) {
+                return bugMap;
+            }
+
+            const epicKeys = [...new Set(epics.map(epic => epic?.key).filter(Boolean))];
+            epicKeys.forEach(key => bugMap.set(key, []));
+
+            if (epicKeys.length === 0) {
+                return bugMap;
+            }
+
+            const { signal } = options;
+            const fetchOptions = signal ? { signal } : {};
+            const chunkSize = 20;
+
+            try {
+                const chunkPromises = chunkArray(epicKeys, chunkSize).map(async chunk => {
+                    if (hasSearchBeenCancelled()) {
+                        return [];
+                    }
+
+                    const formattedKeys = chunk.map(key => `"${key}"`).join(', ');
+                    const jql = `"Epic Link" in (${formattedKeys}) AND issuetype = Bug`;
+                    const response = await fetch(`http://localhost:3000/search?jql=${encodeURIComponent(jql)}`, fetchOptions);
+                    if (!response.ok) {
+                        throw new Error(`Bug batch fetch failed with status ${response.status}`);
+                    }
+
+                    const data = await response.json();
+                    return data.issues || [];
+                });
+
+                const chunkResults = await Promise.all(chunkPromises);
+
+                if (hasSearchBeenCancelled()) {
+                    return bugMap;
+                }
+                chunkResults.forEach(issues => {
+                    if (!Array.isArray(issues)) {
+                        return;
+                    }
+                    for (const bug of issues) {
+                        const epicLink = bug?.fields?.customfield_10014 || bug?.fields?.parent?.key;
+                        if (!epicLink) {
+                            continue;
+                        }
+                        if (!bugMap.has(epicLink)) {
+                            bugMap.set(epicLink, []);
+                        }
+                        bugMap.get(epicLink).push(bug);
+                    }
+                });
+
+                return bugMap;
+            } catch (error) {
+                console.warn('Batch bug fetch failed, falling back to per-epic strategy:', error);
+                return fetchBugsForEpicsSerial(epics, options, bugMap);
+            }
+        }
+
+        async function fetchBugsForEpicsSerial(epics, options = {}, seedMap = new Map()) {
+            const bugMap = new Map(seedMap);
+
+            if (!Array.isArray(epics) || epics.length === 0) {
+                return bugMap;
+            }
+
+            const chunkSize = 5;
+            for (let index = 0; index < epics.length && !hasSearchBeenCancelled(); index += chunkSize) {
+                const chunk = epics.slice(index, index + chunkSize);
+                const chunkPromises = chunk.map(epic => (async () => {
+                    const bugs = await getBugsForEpic(epic.key, [], options);
+                    return { key: epic.key, bugs };
+                })());
+
+                const settledResults = await Promise.allSettled(chunkPromises);
+
+                settledResults.forEach(result => {
+                    if (result.status === 'fulfilled' && result.value) {
+                        const key = result.value.key;
+                        if (!bugMap.has(key)) {
+                            bugMap.set(key, []);
+                        }
+                        bugMap.set(key, result.value.bugs || []);
+                    } else if (result.status === 'rejected') {
+                        const reason = result.reason;
+                        if (reason?.name === 'AbortError' || hasSearchBeenCancelled()) {
+                            console.log('Bug chunk fetch aborted.');
+                        } else {
+                            console.error('Bug chunk fetch failed:', reason);
+                        }
+                    }
+                });
+            }
+
+            return bugMap;
+        }
+
+        async function getStoriesForEpic(epicKey, options = {}) {
+            const stories = await fetchStoriesForSingleEpic(epicKey, options);
+            if (!window.currentEpicsWithStories) {
+                window.currentEpicsWithStories = {};
+            }
+            window.currentEpicsWithStories[epicKey] = stories;
+            return stories;
+        }
+
+        async function enrichStoriesWithSprint(stories, options = {}) {
+            if (!Array.isArray(stories) || stories.length === 0 || hasSearchBeenCancelled()) {
+                return stories;
+            }
+
+            await sprintFieldReady;
+            if (hasSearchBeenCancelled()) {
+                return stories;
+            }
+
+            const { signal } = options;
+            const fetchOptions = signal ? { signal } : {};
+
+            const storiesNeedingSprint = stories.filter(story => {
+                if (!story || !story.fields) {
+                    return false;
+                }
+
+                const cachedSprintValue = sprintFieldCache.get(story.key);
+                if (cachedSprintValue && !story.fields[sprintFieldId]) {
+                    story.fields[sprintFieldId] = cachedSprintValue;
+                    if (sprintFieldId !== SPRINT_FIELD_FALLBACK) {
+                        story.fields[SPRINT_FIELD_FALLBACK] = cachedSprintValue;
+                    }
+                }
+
+                const sprintFieldValue = story.fields[sprintFieldId] ?? story.fields[SPRINT_FIELD_FALLBACK];
+                const hasSprint = !!getLatestSprintName(sprintFieldValue);
+                if (!hasSprint) {
+                    console.log(`Sprint missing for ${story.key}`, {
+                        resolvedFieldId: sprintFieldId,
+                        fallbackField: SPRINT_FIELD_FALLBACK,
+                        resolvedValue: story.fields[sprintFieldId],
+                        fallbackValue: story.fields[SPRINT_FIELD_FALLBACK]
+                    });
+                }
+                return !hasSprint;
+            });
+
+            if (storiesNeedingSprint.length === 0) {
+                return stories;
+            }
+
+            console.log(`Enriching ${storiesNeedingSprint.length} stories with sprint data`);
+
+            for (const story of storiesNeedingSprint) {
+                if (hasSearchBeenCancelled()) {
+                    console.log('Stopped sprint enrichment loop due to cancellation.');
+                    return stories;
+                }
+
+                try {
+                    const detailsUrl = new URL(`http://localhost:3000/issue/${story.key}`);
+                    const fieldsToRequest = new Set([SPRINT_FIELD_FALLBACK]);
+                    if (sprintFieldId) {
+                        fieldsToRequest.add(sprintFieldId);
+                    }
+                    detailsUrl.searchParams.set('fields', Array.from(fieldsToRequest).join(','));
+
+                    const response = await fetch(detailsUrl, fetchOptions);
+                    if (!response.ok) {
+                        throw new Error(`Sprint enrichment failed with status ${response.status}`);
+                    }
+
+                    const detailedStory = await response.json();
+                    const detailedSprintValue = detailedStory?.fields?.[sprintFieldId] ?? detailedStory?.fields?.[SPRINT_FIELD_FALLBACK];
+                    console.log(`Detailed sprint payload for ${story.key}`, {
+                        sprintFieldId,
+                        fallbackField: SPRINT_FIELD_FALLBACK,
+                        detailedResolvedValue: detailedStory?.fields?.[sprintFieldId],
+                        detailedFallbackValue: detailedStory?.fields?.[SPRINT_FIELD_FALLBACK]
+                    });
+                    let sprintValueToApply = detailedSprintValue;
+
+                    if (!sprintValueToApply) {
+                        sprintValueToApply = await fetchAgileSprintValue(story.key, options);
+                        console.log(`Agile sprint payload for ${story.key}`, sprintValueToApply);
+                    }
+
+                    if (sprintValueToApply) {
+                        const normalizedSprintValue = Array.isArray(sprintValueToApply)
+                            ? sprintValueToApply
+                            : [sprintValueToApply];
+
+                        story.fields[sprintFieldId] = normalizedSprintValue;
+                        if (sprintFieldId !== SPRINT_FIELD_FALLBACK) {
+                            story.fields[SPRINT_FIELD_FALLBACK] = normalizedSprintValue;
+                        }
+                        sprintFieldCache.set(story.key, normalizedSprintValue);
+                    } else {
+                        console.warn(`Sprint enrichment returned no data for ${story.key}`);
+                    }
+                } catch (error) {
+                    console.warn(`Unable to enrich sprint info for ${story?.key}:`, error);
+                }
+            }
+
+            return stories;
+        }
+
+        async function fetchAgileSprintValue(issueKey, options = {}) {
+            if (hasSearchBeenCancelled()) {
+                return null;
+            }
+
+            try {
+                const agileUrl = new URL(`http://localhost:3000/agile/issue/${issueKey}`);
+                const { signal } = options;
+                const fetchOptions = signal ? { signal } : {};
+                const response = await fetch(agileUrl, fetchOptions);
+                if (!response.ok) {
+                    throw new Error(`Agile sprint fetch failed with status ${response.status}`);
+                }
+
+                const agileData = await response.json();
+                const sprintCandidates = [];
+
+                if (agileData?.fields?.sprint) {
+                    sprintCandidates.push(agileData.fields.sprint);
+                }
+
+                if (Array.isArray(agileData?.fields?.sprints)) {
+                    sprintCandidates.push(...agileData.fields.sprints);
+                }
+
+                if (Array.isArray(agileData?.fields?.openSprints)) {
+                    sprintCandidates.push(...agileData.fields.openSprints);
+                }
+
+                if (Array.isArray(agileData?.fields?.closedSprints)) {
+                    sprintCandidates.push(...agileData.fields.closedSprints);
+                }
+
+                if (sprintCandidates.length === 0) {
+                    return null;
+                }
+
+                return sprintCandidates;
+            } catch (error) {
+                if (error.name === 'AbortError' || hasSearchBeenCancelled()) {
+                    console.log(`Agile sprint lookup aborted for ${issueKey}.`);
+                    return null;
+                }
+                console.warn(`Agile sprint lookup failed for ${issueKey}:`, error);
+                return null;
+            }
+        }
+
+        async function getBugsForEpic(epicKey, stories = [], options = {}) {
+            if (hasSearchBeenCancelled()) {
+                return [];
+            }
+
             let allBugs = [];
+            const { signal } = options;
+            const fetchOptions = signal ? { signal } : {};
             
             // Get bugs directly linked to epic (this is fast)
             try {
                 const epicBugsJql = `"Epic Link" = ${epicKey} AND issuetype = Bug`;
-                const epicBugsResponse = await fetch(`http://localhost:3000/search?jql=${encodeURIComponent(epicBugsJql)}`);
+                const epicBugsResponse = await fetch(`http://localhost:3000/search?jql=${encodeURIComponent(epicBugsJql)}`, fetchOptions);
                 const epicBugsData = await epicBugsResponse.json();
                 if (epicBugsData.issues) {
                     allBugs = allBugs.concat(epicBugsData.issues);
                 }
             } catch (error) {
+                if (error.name === 'AbortError' || hasSearchBeenCancelled()) {
+                    console.log(`Bug fetch aborted for epic ${epicKey}.`);
+                    return allBugs;
+                }
                 console.error(`Error fetching bugs for epic ${epicKey}:`, error);
             }
 
@@ -465,9 +1738,75 @@
             `;
         }
 
-        function createEpicCard(epic, stories, bugs) {
-            const bugCount = bugs.length;
-            const bugsHtml = bugs.length > 0 ? bugs.map(bug => createBugCard(bug)).join('') : '<span style="color: #68d391; font-weight: 500;">No blocking bugs found</span>';
+        function renderFeatureActions(epicKey, stories, storiesLoading) {
+            const hasStories = Array.isArray(stories) && stories.length > 0;
+
+            if (hasStories) {
+                return `
+                    <button class="email-button" onclick="event.stopPropagation(); sendEmailsDirectly('${epicKey}')" 
+                        title="Send email notifications for each story (TO: Assignee, CC: Reporter)">
+                        <i class="fas fa-envelope"></i>
+                        📧 Email Notification
+                    </button>
+                `;
+            }
+
+            if (storiesLoading) {
+                return '<span style="background: #ebf5ff; color: #1d4ed8; padding: 6px 10px; border-radius: 6px; font-size: 12px; font-weight: 600;">Loading stories...</span>';
+            }
+
+            return '';
+        }
+
+        function renderStoriesSectionInnerHtml(stories, storiesLoading) {
+            const hasStories = Array.isArray(stories) && stories.length > 0;
+
+            if (!hasStories && storiesLoading) {
+                return '<div style="color: #6b7280; font-style: italic;">Loading stories...</div>';
+            }
+
+            if (!hasStories) {
+                return '<div style="color: #6b7280; font-style: italic;">No stories found for this feature</div>';
+            }
+
+            const storyItems = stories.map(story => createStoryListItem(story)).join('');
+            const loadingMessage = storiesLoading
+                ? '<div style="color: #6b7280; font-style: italic; margin-top: 8px;">Loading additional stories...</div>'
+                : '';
+
+            return `
+                <div class="story-list">
+                    ${storyItems}
+                </div>
+                ${loadingMessage}
+            `;
+        }
+
+        function renderBugsSectionInnerHtml(bugs, bugsLoading) {
+            if (bugsLoading) {
+                return '<div style="color: #6b7280; font-style: italic;">Loading bugs...</div>';
+            }
+
+            if (!Array.isArray(bugs) || bugs.length === 0) {
+                return '<div style="color: #6b7280; font-style: italic;">No bugs found for this feature</div>';
+            }
+
+            return `
+                <div class="bug-list">
+                    ${bugs.map(bug => createBugCard(bug)).join('')}
+                </div>
+            `;
+        }
+
+        function createEpicCard(epic, stories, bugs, options = {}) {
+            const { storiesLoading = false, bugsLoading = false } = options;
+            const bugCount = Array.isArray(bugs) ? bugs.length : 0;
+            const storyCount = Array.isArray(stories) ? stories.length : 0;
+            const hasStories = storyCount > 0;
+            const storyCountLabel = storiesLoading && !hasStories ? 'Loading...' : `${storyCount} ${storyCount === 1 ? 'story' : 'stories'}`;
+            const bugCountLabel = bugsLoading ? 'Loading...' : `${bugCount} total count`;
+            const actionsHtml = renderFeatureActions(epic.key, stories, storiesLoading);
+            const cardId = `feature-card-${epic.key}`;
 
             // Extract Epic Feature Number from various possible fields
             let featureNumber = '';
@@ -525,19 +1864,15 @@
             });
 
             return `
-                <div class="feature-card">
+                <div class="feature-card" id="${cardId}" data-epic-key="${epic.key}">
                     <div class="feature-header" onclick="toggleFeature(this)">
                         <div class="feature-title">
                             <i class="fas fa-plus-circle feature-toggle-icon" style="color: #3182ce; margin-right: 8px; transition: transform 0.3s ease;"></i>
                             <strong>Feature - ${epic.key}: ${epic.fields.summary}</strong>
                         </div>
-                        ${stories.length > 0 ? `
-                        <button class="email-button" onclick="event.stopPropagation(); sendEmailsDirectly('${epic.key}')" 
-                                title="Send notification emails for stories with missing fields">
-                            <i class="fas fa-envelope"></i>
-                            Email Notifications
-                        </button>
-                        ` : ''}
+                        <div class="feature-actions" id="feature-actions-${epic.key}" style="display: flex; align-items: center; gap: 8px;">
+                            ${actionsHtml}
+                        </div>
                     </div>
                     <div class="feature-details">
                         <div class="feature-branch-structure">
@@ -556,46 +1891,22 @@
                             <div class="branch-item" style="margin-top: 15px;">
                                 <span onclick="toggleSection(this, 'stories')" style="cursor: pointer; display: inline-flex; align-items: center;">
                                     <i class="fas fa-plus section-toggle-icon" style="color: #22c55e; margin-right: 8px; transition: transform 0.3s ease;"></i>
-                                    <strong>Stories = ${stories.length} stories</strong>
+                                    <strong>Stories = <span id="stories-count-${epic.key}">${storyCountLabel}</span></strong>
                                 </span>
-                                ${stories.length > 0 ? `
-                                <div class="sub-details stories-section" style="margin-left: 24px; margin-top: 10px; display: none;">
-                                    <div class="story-list">
-                                        ${stories.map(story => createStoryListItem(story)).join('')}
-                                    </div>
+                                <div class="sub-details stories-section" id="stories-section-${epic.key}" style="margin-left: 24px; margin-top: 10px; display: none;">
+                                    ${renderStoriesSectionInnerHtml(stories, storiesLoading)}
                                 </div>
-                                ` : `
-                                <div class="sub-details stories-section" style="margin-left: 24px; margin-top: 8px; color: #6b7280; font-style: italic; display: none;">
-                                    No stories found for this feature
-                                </div>
-                                `}
                             </div>
 
                             <!-- Bugs -->
                             <div class="branch-item" style="margin-top: 15px;">
                                 <span onclick="toggleSection(this, 'bugs')" style="cursor: pointer; display: inline-flex; align-items: center;">
                                     <i class="fas fa-plus section-toggle-icon" style="color: #22c55e; margin-right: 8px; transition: transform 0.3s ease;"></i>
-                                    <strong>Bugs = ${bugCount} total count</strong>
+                                    <strong>Bugs = <span id="bugs-count-${epic.key}">${bugCountLabel}</span></strong>
                                 </span>
-                                ${bugs.length > 0 ? `
-                                <div class="sub-details bugs-section" style="margin-left: 24px; margin-top: 10px; display: none;">
-                                    ${bugs.map(bug => `
-                                        <div class="bug-branch-item" style="margin-bottom: 8px;">
-                                            <i class="fas fa-bug" style="color: #dc2626; margin-right: 8px; font-size: 12px;"></i>
-                                            <span style="color: #dc2626; font-weight: 500; cursor: pointer; text-decoration: underline;" 
-                                                  onclick="openJiraIssue('${bug.key}')" 
-                                                  onmouseover="this.style.color='#b91c1c'" 
-                                                  onmouseout="this.style.color='#dc2626'"
-                                                  title="Click to open ${bug.key} in JIRA">${bug.key}</span> - ${bug.fields.summary}
-                                            <span style="background: #fef2f2; color: #dc2626; padding: 2px 6px; border-radius: 4px; font-size: 11px; margin-left: 8px;">${bug.fields.status.name}</span>
-                                        </div>
-                                    `).join('')}
+                                <div class="sub-details bugs-section" id="bugs-section-${epic.key}" style="margin-left: 24px; margin-top: 10px; display: none;">
+                                    ${renderBugsSectionInnerHtml(bugs, bugsLoading)}
                                 </div>
-                                ` : `
-                                <div class="sub-details bugs-section" style="margin-left: 24px; margin-top: 8px; color: #6b7280; font-style: italic; display: none;">
-                                    No bugs found for this feature
-                                </div>
-                                `}
                             </div>
 
                             <!-- Capability Number -->
@@ -613,6 +1924,49 @@
                     </div>
                 </div>
             `;
+        }
+
+        function updateEpicStoriesUI(epicKey, state) {
+            if (!state || hasSearchBeenCancelled()) {
+                return;
+            }
+
+            const storyCountElement = document.getElementById(`stories-count-${epicKey}`);
+            if (storyCountElement) {
+                const storyCount = Array.isArray(state.stories) ? state.stories.length : 0;
+                const label = state.storiesLoading && storyCount === 0
+                    ? 'Loading...'
+                    : `${storyCount} ${storyCount === 1 ? 'story' : 'stories'}`;
+                storyCountElement.textContent = label;
+            }
+
+            const storySection = document.getElementById(`stories-section-${epicKey}`);
+            if (storySection) {
+                storySection.innerHTML = renderStoriesSectionInnerHtml(state.stories, state.storiesLoading);
+            }
+
+            const actionsContainer = document.getElementById(`feature-actions-${epicKey}`);
+            if (actionsContainer) {
+                actionsContainer.innerHTML = renderFeatureActions(epicKey, state.stories, state.storiesLoading);
+            }
+        }
+
+        function updateEpicBugsUI(epicKey, state) {
+            if (!state || hasSearchBeenCancelled()) {
+                return;
+            }
+
+            const bugCountElement = document.getElementById(`bugs-count-${epicKey}`);
+            if (bugCountElement) {
+                const bugCount = Array.isArray(state.bugs) ? state.bugs.length : 0;
+                const label = state.bugsLoading ? 'Loading...' : `${bugCount} total count`;
+                bugCountElement.textContent = label;
+            }
+
+            const bugSection = document.getElementById(`bugs-section-${epicKey}`);
+            if (bugSection) {
+                bugSection.innerHTML = renderBugsSectionInnerHtml(state.bugs, state.bugsLoading);
+            }
         }
 
         function createOrphanedStoriesCard(stories) {
@@ -645,20 +1999,25 @@
                 return true;
             }
             
-            // Empty string - empty
-            if (typeof field === 'string' && field.trim() === '') {
-                console.log(`${fieldName} is empty string, returning true`);
-                return true;
-            }
-            
-            // Non-empty string - has content
-            if (typeof field === 'string' && field.trim().length > 0) {
-                // Check for special cases like "No acceptance criteria defined"
-                if (field.includes('No acceptance criteria') || field.includes('No description')) {
-                    console.log(`${fieldName} contains "No content" text, returning true`);
+            if (typeof field === 'string') {
+                const sanitized = field
+                    .replace(/<[^>]*>/g, ' ') // strip HTML tags
+                    .replace(/&nbsp;/gi, ' ') // normalize nbsp
+                    .replace(/\s+/g, ' ')    // collapse whitespace
+                    .trim();
+
+                if (sanitized.length === 0) {
+                    console.log(`${fieldName} is empty string after sanitizing, returning true`);
                     return true;
                 }
-                console.log(`${fieldName} is non-empty string, returning false`);
+
+                const placeholderRegex = /^(no (acceptance criteria|description)( defined)?[.!]?)$/i;
+                if (placeholderRegex.test(sanitized)) {
+                    console.log(`${fieldName} matches placeholder text (${sanitized}), returning true`);
+                    return true;
+                }
+
+                console.log(`${fieldName} is non-empty string (${sanitized}), returning false`);
                 return false;
             }
             
@@ -731,9 +2090,69 @@
             }
         }
 
+        // Extracts the most relevant sprint name from varying JIRA formats
+        function getLatestSprintName(sprintField) {
+            if (!sprintField) {
+                return null;
+            }
+
+            const parseEntry = (entry) => {
+                if (!entry) {
+                    return null;
+                }
+
+                if (typeof entry === 'string') {
+                    const nameMatch = entry.match(/name=([^,\]]+)/);
+                    if (nameMatch) {
+                        return nameMatch[1].trim().replace(/^"|"$/g, '');
+                    }
+                    return entry.trim();
+                }
+
+                if (typeof entry === 'object') {
+                    if (entry.name) {
+                        return entry.name;
+                    }
+
+                    if (entry.displayName) {
+                        return entry.displayName;
+                    }
+
+                    if (entry.value) {
+                        return entry.value;
+                    }
+                }
+
+                return null;
+            };
+
+            if (Array.isArray(sprintField)) {
+                for (let i = sprintField.length - 1; i >= 0; i--) {
+                    const parsed = parseEntry(sprintField[i]);
+                    if (parsed) {
+                        return parsed;
+                    }
+                }
+                return null;
+            }
+
+            return parseEntry(sprintField);
+        }
+
         function createStoryListItem(story) {
             const customField10221 = story.fields.customfield_10221;
             const styles = getStoryStyles(story);
+            const sprintFieldValue = story?.fields?.[sprintFieldId] ?? story?.fields?.[SPRINT_FIELD_FALLBACK];
+            const sprintName = getLatestSprintName(sprintFieldValue);
+            const sprintDisplay = sprintName || 'No Active Sprint';
+
+            console.log(`Rendering story ${story.key} sprint info`, {
+                sprintFieldId,
+                fallbackField: SPRINT_FIELD_FALLBACK,
+                sprintName,
+                rawResolvedValue: story?.fields?.[sprintFieldId],
+                rawFallbackValue: story?.fields?.[SPRINT_FIELD_FALLBACK]
+            });
             
             // Create missing field indicators with same logic as getStoryStyles
             const hasDescription = !isFieldEmpty(story.fields.description, `${story.key}_description`);
@@ -795,6 +2214,12 @@
                             ">${story.fields.status.name}</span>
                         </div>
                         
+                        <!-- Sprint -->
+                        <div style="margin-right: 16px; min-width: 150px; font-size: 13px; color: #1e3a8a; display: flex; align-items: center; gap: 6px;">
+                            <i class="fas fa-flag-checkered"></i>
+                            <span>${sprintDisplay}</span>
+                        </div>
+
                         <!-- Assignee -->
                         <div style="margin-right: 16px; min-width: 120px; font-size: 13px; color: #6b7280;">
                             <i class="fas fa-user" style="margin-right: 4px;"></i>
@@ -834,6 +2259,17 @@
 
         function createStoryCard(story) {
             const customField10221 = story.fields.customfield_10221;
+            const sprintFieldValue = story?.fields?.[sprintFieldId] ?? story?.fields?.[SPRINT_FIELD_FALLBACK];
+            const sprintName = getLatestSprintName(sprintFieldValue);
+            const sprintDisplay = sprintName || 'No Active Sprint';
+
+            console.log(`Rendering detail card sprint info for ${story.key}`, {
+                sprintFieldId,
+                fallbackField: SPRINT_FIELD_FALLBACK,
+                sprintName,
+                rawResolvedValue: story?.fields?.[sprintFieldId],
+                rawFallbackValue: story?.fields?.[SPRINT_FIELD_FALLBACK]
+            });
             
             return `
                 <div class="story-card">
@@ -849,6 +2285,7 @@
                     </div>
                     <div class="story-title">${story.fields.summary}</div>
                     <div class="story-status"><i class="fas fa-info-circle"></i> Status: ${story.fields.status.name}</div>
+                    <div class="story-sprint"><i class="fas fa-flag-checkered"></i> Sprint: ${sprintDisplay}</div>
                     <div class="story-assignee"><i class="fas fa-user"></i> Assignee: ${story.fields.assignee ? story.fields.assignee.displayName : 'Unassigned'}</div>
                     ${customField10221 ? `<div class="story-custom-field" style="color: #4a5568; font-size: 0.9rem; margin-top: 8px;"><i class="fas fa-tag"></i> Custom Field: ${customField10221}</div>` : ''}
                     <div class="story-details" id="details-${story.key}">
@@ -899,11 +2336,18 @@
         }
 
         function clearResults() {
+            cancelOngoingSearch('Clear button pressed; cancelling active search.');
+            resetLoadingState();
             document.getElementById('jqlInput').value = '';
             hideResults();
             hideError();
             showEmptyState();
             searchData = [];
+            window.currentSearchData = [];
+            window.currentEpicsWithStories = {};
+            currentSearchMeta = null;
+            window.currentSearchMeta = null;
+            lastExecutedJql = '';
         }
 
         function showLoading(show) {
@@ -957,6 +2401,53 @@
 
         function hideError() {
             // Error messages are shown in results content, so clearing results will hide them
+        }
+
+        function showDashboardToast(message, variant = 'info') {
+            const existingToast = document.getElementById('dashboard-toast');
+            if (existingToast) {
+                existingToast.remove();
+            }
+
+            const palettes = {
+                success: { background: '#047857', color: '#ecfdf5' },
+                warning: { background: '#b45309', color: '#fffbeb' },
+                error: { background: '#b91c1c', color: '#fef2f2' },
+                info: { background: '#1d4ed8', color: '#eff6ff' }
+            };
+
+            const { background, color } = palettes[variant] || palettes.info;
+
+            const toast = document.createElement('div');
+            toast.id = 'dashboard-toast';
+            toast.textContent = message;
+            toast.style.position = 'fixed';
+            toast.style.bottom = '24px';
+            toast.style.left = '50%';
+            toast.style.transform = 'translateX(-50%)';
+            toast.style.background = background;
+            toast.style.color = color;
+            toast.style.padding = '12px 20px';
+            toast.style.borderRadius = '8px';
+            toast.style.boxShadow = '0 10px 25px rgba(0, 0, 0, 0.2)';
+            toast.style.fontSize = '14px';
+            toast.style.fontWeight = '600';
+            toast.style.opacity = '0';
+            toast.style.transition = 'opacity 0.3s ease';
+            toast.style.zIndex = '11000';
+
+            document.body.appendChild(toast);
+
+            requestAnimationFrame(() => {
+                toast.style.opacity = '1';
+            });
+
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                setTimeout(() => {
+                    toast.remove();
+                }, 300);
+            }, 4000);
         }
 
         // Allow Enter key to trigger search
@@ -1872,10 +3363,11 @@
         }
 
         // Direct Email Functionality (No Preview)
-        function sendEmailsDirectly(epicKey) {
-            console.log('=== DIRECT EMAIL SEND START ===');
+        async function sendEmailsDirectly(epicKey) {
+            console.log('=== INDIVIDUAL STORY EMAIL SEND START ===');
             console.log('Epic Key:', epicKey);
             
+            await ensureEpicStoriesCached(epicKey);
             const epicStories = getStoriesForEmailEpic(epicKey);
             console.log('Total Stories Found:', epicStories.length);
             
@@ -1892,51 +3384,777 @@
                 return;
             }
 
-            const emailData = prepareEmailData(storiesWithMissingFields);
-            console.log('Email data prepared for', emailData.length, 'recipients');
+            // Send email notifications for each story
+            sendIndividualStoryEmails(storiesWithMissingFields, epicKey);
+        }
+
+        async function ensureEpicStoriesCached(epicKey) {
+            if (!window.currentEpicsWithStories) {
+                window.currentEpicsWithStories = {};
+            }
+
+            const cachedStories = window.currentEpicsWithStories[epicKey];
+            if (Array.isArray(cachedStories) && cachedStories.length > 0) {
+                return cachedStories;
+            }
+
+            try {
+                console.log(`Cache miss for ${epicKey}, fetching stories on demand.`);
+                const freshStories = await getStoriesForEpic(epicKey);
+                if (Array.isArray(freshStories) && freshStories.length > 0) {
+                    window.currentEpicsWithStories[epicKey] = freshStories;
+                }
+                return freshStories || [];
+            } catch (error) {
+                console.error(`Failed to fetch stories for ${epicKey} during email prep:`, error);
+                return cachedStories || [];
+            }
+        }
+
+        function sendIndividualStoryEmails(stories, epicKey) {
+            console.log('=== SENDING EMAIL NOTIFICATIONS ===');
+            console.log('Stories to process:', stories.length);
             
-            if (emailData.length === 0) {
-                alert('No email addresses found for reporters of stories with missing fields.');
+            let emailsData = [];
+            
+            stories.forEach((story, index) => {
+                console.log(`\n--- Processing Story ${index + 1}: ${story.key} ---`);
+                
+                // Get reporter email for TO field
+                let reporterEmail = null;
+                let reporterName = 'Reporter';
+                
+                if (story.fields.reporter) {
+                    reporterEmail = story.fields.reporter.emailAddress || 
+                                  story.fields.reporter.email || 
+                                  story.fields.reporter.name;
+                    reporterName = story.fields.reporter.displayName || 
+                                  story.fields.reporter.name || 
+                                  'Reporter';
+                }
+                
+                console.log('Story reporter email:', reporterEmail);
+                console.log('Story reporter name:', reporterName);
+                
+                // Get assignee email for TO field (now primary recipient)
+                let assigneeEmail = null;
+                let assigneeName = 'Unassigned';
+                
+                if (story.fields.assignee) {
+                    assigneeEmail = story.fields.assignee.emailAddress || 
+                                   story.fields.assignee.email || 
+                                   story.fields.assignee.name;
+                    assigneeName = story.fields.assignee.displayName || 
+                                  story.fields.assignee.name || 
+                                  'Assigned User';
+                }
+                
+                console.log('Story assignee email:', assigneeEmail);
+                console.log('Story assignee name:', assigneeName);
+                
+                // Determine primary recipient (assignee preferred, fallback to reporter if no assignee)
+                const toEmail = assigneeEmail || reporterEmail;
+                if (!toEmail) {
+                    console.log(`⚠️ Skipping story ${story.key} - no available recipient (assignee/reporter)`);
+                    return;
+                }
+
+                // Prepare individual email for this specific story (greet primary recipient)
+                const emailTemplate = generateIndividualStoryEmailTemplate(
+                    assigneeName || reporterName,
+                    story,
+                    reporterName,
+                    epicKey
+                );
+
+                const subject = encodeURIComponent(emailTemplate.subject);
+                const body = encodeURIComponent(emailTemplate.body);
+                const ccParam = reporterEmail && reporterEmail !== toEmail ?
+                               `&cc=${encodeURIComponent(reporterEmail)}` : '';
+                const mailtoLink = `mailto:${toEmail}?subject=${subject}&body=${body}${ccParam}`;
+                
+                emailsData.push({
+                    story: story.key,
+                    storyTitle: story.fields.summary,
+                    to: toEmail,
+                    cc: reporterEmail || 'none',
+                    reporterName: reporterName,
+                    assigneeName: assigneeName,
+                    reporterEmail: reporterEmail,
+                    assigneeEmail: assigneeEmail,
+                    subject: emailTemplate.subject,
+                    body: emailTemplate.body,
+                    mailtoLink: mailtoLink
+                });
+            });
+
+            if (emailsData.length === 0) {
+                alert('No valid email addresses found for stories with missing fields.');
                 return;
             }
 
-            // Send emails directly with feature information
-            sendEmailsToOutlook(emailData, epicKey);
+            // Show interactive email modal to avoid popup blocking
+            showIndividualEmailModal(emailsData, epicKey);
         }
 
-        function sendEmailsToOutlook(emailData, epicKey) {
-            let emailsSent = 0;
+        function showIndividualEmailModal(emailsData, epicKey) {
+            const modal = document.createElement('div');
+            modal.style.cssText = `
+                position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+                background: rgba(0,0,0,0.8); z-index: 10000; display: flex; 
+                align-items: center; justify-content: center; padding: 20px;
+            `;
             
-            emailData.forEach((data, index) => {
-                const emailTemplate = generateEmailTemplate(data.reporterName, data.stories, data.ccEmails, epicKey);
-                const subject = encodeURIComponent(emailTemplate.subject);
-                const body = encodeURIComponent(emailTemplate.body);
-                const ccParam = data.ccEmails.length > 0 ? `&cc=${encodeURIComponent(data.ccEmails.join(','))}` : '';
-                const mailtoLink = `mailto:${data.email}?subject=${subject}&body=${body}${ccParam}`;
+            const modalContent = document.createElement('div');
+            modalContent.style.cssText = `
+                background: white; border-radius: 12px; padding: 30px; 
+                max-width: 900px; width: 100%; max-height: 85vh; overflow-y: auto;
+                box-shadow: 0 15px 40px rgba(0,0,0,0.4);
+            `;
+            
+            modalContent.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; border-bottom: 3px solid #4299e1; padding-bottom: 15px;">
+                    <h2 style="margin: 0; color: #2d3748; font-size: 26px;">📧 Email Notification</h2>
+                    <button onclick="this.closest('[style*=position]').remove()" style="background: none; border: none; font-size: 28px; cursor: pointer; color: #666; hover: color: #000;">&times;</button>
+                </div>
                 
-                console.log(`Opening email ${index + 1}:`, {
-                    to: data.email,
-                    cc: data.ccEmails,
-                    storiesCount: data.stories.length,
-                    feature: epicKey
+                <div style="margin-bottom: 25px; padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 10px; color: white;">
+                    <h3 style="margin: 0 0 10px 0; font-size: 18px;">🎯 Feature: ${epicKey}</h3>
+                    <p style="margin: 0; font-size: 14px; opacity: 0.9;">${emailsData.length} emails will be sent - each to the story assignee (TO) with reporter (CC).</p>
+                </div>
+                
+                <div style="margin-bottom: 25px; text-align: center;">
+                    <button onclick="previewEmails()" style="background: linear-gradient(135deg, #4299e1 0%, #3182ce 100%); color: white; border: none; padding: 15px 30px; border-radius: 10px; cursor: pointer; font-size: 16px; font-weight: bold; box-shadow: 0 6px 20px rgba(66, 153, 225, 0.4); transition: all 0.3s ease; margin-right: 15px;"
+                            onmouseover="this.style.transform='translateY(-3px)'; this.style.boxShadow='0 8px 25px rgba(66, 153, 225, 0.5)';"
+                            onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 6px 20px rgba(66, 153, 225, 0.4)';">
+                        Preview First Email
+                    </button>
+                    <button onclick="sendAllIndividualEmails()" style="background: linear-gradient(135deg, #48bb78 0%, #38a169 100%); color: white; border: none; padding: 15px 30px; border-radius: 10px; cursor: pointer; font-size: 16px; font-weight: bold; box-shadow: 0 6px 20px rgba(72, 187, 120, 0.4); transition: all 0.3s ease;"
+                            onmouseover="this.style.transform='translateY(-3px)'; this.style.boxShadow='0 8px 25px rgba(72, 187, 120, 0.5)';"
+                            onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 6px 20px rgba(72, 187, 120, 0.4)';">
+                        � Send All Emails (${emailsData.length} total)
+                    </button>
+                </div>
+                
+                <div id="emailList" style="gap: 15px; display: flex; flex-direction: column;">
+                    ${emailsData.map((email, index) => `
+                        <div style="border: 2px solid #e2e8f0; border-radius: 12px; padding: 20px; background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); box-shadow: 0 4px 8px rgba(0,0,0,0.1);">
+                            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                                <div style="flex: 1;">
+                                    <h4 style="margin: 0 0 8px 0; color: #2d3748; font-size: 18px; font-weight: bold;">📝 Email ${index + 1}: ${email.story}</h4>
+                                    <p style="margin: 0 0 10px 0; color: #4a5568; font-size: 14px; font-style: italic; line-height: 1.4;">${email.storyTitle}</p>
+                                    <div style="font-size: 13px; color: #666; line-height: 1.6;">
+                                        <p style="margin: 3px 0;"><strong style="color: #2d3748;">📤 TO:</strong> ${email.assigneeName} <span style="color: #4a5568;">(${email.to})</span></p>
+                                        <p style="margin: 3px 0;"><strong style="color: #2d3748;">📬 CC:</strong> ${email.reporterName} <span style="color: #4a5568;">(${email.cc})</span></p>
+                                    </div>
+                                </div>
+                                <div style="background: #e8f5e8; padding: 8px 12px; border-radius: 6px; font-size: 12px; color: #2d5016; font-weight: bold;">
+                                    Will be sent
+                                </div>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+                
+                <div style="margin-top: 25px; padding: 20px; background: #f0f9ff; border: 2px solid #bfdbfe; border-radius: 10px; text-align: center;">
+                    <p style="margin: 0; color: #1e40af; font-size: 14px; line-height: 1.5;"><strong>💡 Tip:</strong> Click "Send All Emails" button above to open all ${emailsData.length} emails at once. Each email will open with a short delay to ensure all emails are sent successfully.</p>
+                </div>
+            `;
+            
+            modal.appendChild(modalContent);
+            document.body.appendChild(modal);
+            
+            // Store email data globally for functions
+            window.currentEmailsData = emailsData;
+            
+            // Add global function to preview the first email
+            window.previewEmails = function() {
+                if (emailsData.length === 0) {
+                    alert('No emails to preview!');
+                    return;
+                }
+                
+                const firstEmail = emailsData[0];
+                
+                // Create preview modal
+                const modal = document.createElement('div');
+                modal.style.cssText = `
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    background: rgba(0,0,0,0.8);
+                    z-index: 10000;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-family: Arial, sans-serif;
+                `;
+                
+                modal.innerHTML = `
+                    <div style="background: white; border-radius: 15px; max-width: 800px; max-height: 90vh; overflow-y: auto; margin: 20px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
+                        <div style="padding: 30px; border-bottom: 2px solid #e2e8f0;">
+                            <h2 style="margin: 0 0 15px 0; color: #2d3748; display: flex; align-items: center;">
+                                <span style="margin-right: 10px;">📧</span> Email Preview
+                            </h2>
+                            <p style="margin: 0; color: #718096; font-size: 14px;">Preview of the email that will be sent to story reporters</p>
+                        </div>
+                        
+                        <div style="padding: 30px;">
+                            <div style="margin-bottom: 25px; padding: 20px; background: #f7fafc; border-radius: 10px; border-left: 4px solid #4299e1;">
+                                <h3 style="margin: 0 0 10px 0; color: #2d3748; font-size: 16px;">Email Details</h3>
+                                <div style="font-size: 14px; line-height: 1.6;">
+                                    <strong>TO:</strong> ${firstEmail.assigneeName} (${firstEmail.assigneeEmail || firstEmail.to})<br>
+                                    <strong>CC:</strong> ${firstEmail.reporterName} (${firstEmail.reporterEmail || firstEmail.cc})<br>
+                                    <strong>SUBJECT:</strong> ${firstEmail.subject}
+                                </div>
+                            </div>
+                            
+                            <div style="margin-bottom: 25px;">
+                                <h3 style="margin: 0 0 15px 0; color: #2d3748; font-size: 16px;">Email Body</h3>
+                                <div style="background: #f8f9fa; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; font-family: monospace; font-size: 13px; line-height: 1.6; white-space: pre-wrap; max-height: 400px; overflow-y: auto;">${firstEmail.body}</div>
+                            </div>
+                            
+                            <div style="text-align: center; border-top: 2px solid #e2e8f0; padding-top: 25px;">
+                                <button onclick="this.parentElement.parentElement.parentElement.parentElement.remove()" style="background: #e2e8f0; color: #4a5568; border: none; padding: 12px 25px; border-radius: 8px; cursor: pointer; margin-right: 15px; font-size: 14px; font-weight: bold;">Close Preview</button>
+                                <button onclick="this.parentElement.parentElement.parentElement.parentElement.remove(); sendAllIndividualEmails();" style="background: linear-gradient(135deg, #48bb78 0%, #38a169 100%); color: white; border: none; padding: 12px 25px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: bold;">Send All ${emailsData.length} Emails</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                // Close modal when clicking outside
+                modal.addEventListener('click', function(e) {
+                    if (e.target === modal) {
+                        modal.remove();
+                    }
                 });
                 
-                // Open mailto link (with a small delay between multiple emails)
-                setTimeout(() => {
-                    try {
-                        window.open(mailtoLink, '_blank');
-                        emailsSent++;
-                    } catch (error) {
-                        console.error('Error opening email:', error);
-                    }
-                }, index * 500);
-            });
+                document.body.appendChild(modal);
+            };
+            
+            // Add global function to send all emails automatically with timing delays
+            window.sendAllIndividualEmails = async function() {
+                console.log(`🚀 Automatically sending all ${emailsData.length} email notifications...`);
+                
+                const totalEmails = emailsData.length;
+                let currentIndex = 0;
+                let successCount = 0;
+                let failureCount = 0;
+                let retryQueue = [];
+                
+                // Create enhanced progress modal
+                const progressModal = document.createElement('div');
+                progressModal.style.cssText = `
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    background: rgba(0,0,0,0.9);
+                    z-index: 10001;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                `;
+                
+                const progressContent = document.createElement('div');
+                progressContent.style.cssText = `
+                    background: white;
+                    padding: 40px;
+                    border-radius: 15px;
+                    text-align: center;
+                    max-width: 700px;
+                    width: 95%;
+                    box-shadow: 0 15px 40px rgba(0,0,0,0.4);
+                    max-height: 90vh;
+                    overflow-y: auto;
+                `;
+                
+                progressModal.appendChild(progressContent);
+                document.body.appendChild(progressModal);
+                
+                // Batch processing confirmation - 3 emails per click
+                const confirmed = confirm(`� Individual Email Confirmation\n\nThis will automatically send ${totalEmails} individual emails directly through Microsoft Outlook.\n\nEach email will be:\n• Sent to Story Assignee\n• CC: Story Reporter (if different)\n• Saved in your Outlook Sent Items\n• Subject: Missing required field - [Story] - Action Required\n\nContinue with direct email sending?`);
 
-            // Show success message
-            setTimeout(() => {
-                alert(`${emailData.length} email${emailData.length === 1 ? '' : 's'} opened in Outlook with assignees CC'd.\n\nEmails sent to:\n${emailData.map(d => `• ${d.email} (${d.stories.length} ${d.stories.length === 1 ? 'story' : 'stories'})`).join('\n')}`);
-            }, emailData.length * 500 + 100);
-        }
+                if (!confirmed) {
+                    progressModal.remove();
+                    return;
+                }
+
+                // Provide immediate visual feedback while the server processes the request
+                progressContent.innerHTML = `
+                    <div style="display: flex; flex-direction: column; align-items: center; gap: 16px;">
+                        <div class="spinner" style="width: 40px; height: 40px; border: 4px solid #bfdbfe; border-top: 4px solid #4299e1; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+                        <div style="font-size: 16px; color: #1e3a8a; font-weight: 600;">Sending ${totalEmails} Outlook email${totalEmails === 1 ? '' : 's'}...</div>
+                        <div style="font-size: 13px; color: #475569;">This may take a few moments while Outlook processes each notification.</div>
+                    </div>
+                    <style>
+                        @keyframes spin {
+                            0% { transform: rotate(0deg); }
+                            100% { transform: rotate(360deg); }
+                        }
+                    </style>
+                `;
+
+                // Send emails via server-side Outlook automation
+
+                
+                try {
+                    console.log('📧 Sending email request to server...');
+                    
+                    const response = await fetch('http://localhost:3000/send-emails', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            emailsData: emailsData
+                        })
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error(`Server responded with status ${response.status}`);
+                    }
+
+                    const result = await response.json();
+                    
+                    if (result.success) {
+                        successCount = result.result?.success || 0;
+                        failureCount = result.result?.failure || 0;
+
+                        console.log('✅ Server-side email sending completed');
+                        console.log(`📊 Results: ${successCount} successful, ${failureCount} failed`);
+
+                        const toastVariant = failureCount > 0 ? 'warning' : 'success';
+                        const toastMessage = failureCount > 0
+                            ? `Email notifications sent. Success: ${successCount}, Failed: ${failureCount}.`
+                            : `Email notifications sent to ${successCount} assignees.`;
+
+                        closeEmailModal();
+                        showDashboardToast(toastMessage, toastVariant);
+                        return;
+                    } else {
+                        throw new Error(result.details || 'Email sending failed');
+                    }
+                    
+                } catch (error) {
+                    console.error('❌ Failed to send emails via server:', error);
+                    if (progressModal && progressModal.parentNode) {
+                        progressModal.remove();
+                    }
+                    showDashboardToast(`Email notifications failed: ${error.message}`, 'error');
+                    return;
+                }
+                    
+                
+                // Batch processing function
+                function processNextBatch() {
+                    const progress = Math.round((currentIndex / totalEmails) * 100);
+                    
+                    if (currentIndex >= totalEmails) {
+                        showCompletionStatus();
+                        return;
+                    }
+                    
+                    const currentBatch = emailsData.slice(currentIndex, Math.min(currentIndex + BATCH_SIZE, totalEmails));
+                    const batchNumber = batchesProcessed + 1;
+                    
+                    // Show batch ready for processing
+                    progressContent.innerHTML = `
+                        <h3 style="color: #4299e1; margin-bottom: 25px;">📧 Batch Processing - Auto-Open 3 Emails</h3>
+                        
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 15px; margin-bottom: 25px;">
+                            <div style="background: #e6f3ff; padding: 15px; border-radius: 8px; text-center;">
+                                <div style="font-size: 20px; font-weight: bold; color: #2563eb;">${batchNumber}</div>
+                                <div style="font-size: 12px; color: #666;">Current Batch</div>
+                            </div>
+                            <div style="background: #f0f9f0; padding: 15px; border-radius: 8px; text-center;">
+                                <div style="font-size: 20px; font-weight: bold; color: #059669;">${successCount}</div>
+                                <div style="font-size: 12px; color: #666;">Opened</div>
+                            </div>
+                            <div style="background: #fef2f2; padding: 15px; border-radius: 8px; text-center;">
+                                <div style="font-size: 20px; font-weight: bold; color: #dc2626;">${failureCount}</div>
+                                <div style="font-size: 12px; color: #666;">Failed</div>
+                            </div>
+                            <div style="background: #fef3c7; padding: 15px; border-radius: 8px; text-center;">
+                                <div style="font-size: 20px; font-weight: bold; color: #d97706;">${totalBatches}</div>
+                                <div style="font-size: 12px; color: #666;">Total Batches</div>
+                            </div>
+                        </div>
+                        
+                        <div style="background: #e2e8f0; border-radius: 15px; height: 20px; margin-bottom: 25px; overflow: hidden;">
+                            <div style="background: linear-gradient(90deg, #4299e1, #48bb78); height: 100%; width: ${progress}%; transition: width 0.5s ease;"></div>
+                        </div>
+                        
+                        <div style="background: #f7fafc; border: 2px solid #e2e8f0; border-radius: 12px; padding: 20px; margin-bottom: 25px; text-align: left;">
+                            <h4 style="margin: 0 0 15px 0; color: #2d3748;">📧 Batch ${batchNumber} of ${totalBatches} - Ready to Open ${currentBatch.length} Emails:</h4>
+                            ${currentBatch.map((email, index) => `
+                                <div style="background: white; margin: 8px 0; padding: 12px; border-radius: 8px; border-left: 4px solid #4299e1;">
+                                    <div style="font-weight: bold; font-size: 14px; color: #2d3748; margin-bottom: 5px;">${email.story}</div>
+                                    <div style="color: #4a5568; margin-bottom: 5px; font-size: 13px; line-height: 1.3;">${email.storyTitle}</div>
+                                    <div style="font-size: 12px; color: #666;">
+                                        <strong>TO:</strong> ${email.assigneeName} | <strong>CC:</strong> ${email.reporterName}
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                        
+                        <div style="margin-bottom: 20px;">
+                            <button onclick="openCurrentBatch()" style="
+                                background: linear-gradient(135deg, #48bb78 0%, #38a169 100%); 
+                                color: white; 
+                                border: none; 
+                                padding: 20px 50px; 
+                                border-radius: 12px; 
+                                cursor: pointer; 
+                                font-size: 18px;
+                                font-weight: bold;
+                                margin-right: 15px;
+                                box-shadow: 0 6px 20px rgba(72, 187, 120, 0.3);
+                            " onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
+                                � Auto-Open These ${currentBatch.length} Emails
+                            </button>
+                            
+                            <button onclick="skipCurrentBatch()" style="
+                                background: linear-gradient(135deg, #ed8936 0%, #dd6b20 100%); 
+                                color: white; 
+                                border: none; 
+                                padding: 20px 30px; 
+                                border-radius: 12px; 
+                                cursor: pointer; 
+                                font-size: 16px;
+                                font-weight: bold;
+                                box-shadow: 0 6px 20px rgba(237, 137, 54, 0.3);
+                            " onmouseover="this.style.transform='translateY(-2px)'" onmouseout="this.style.transform='translateY(0)'">
+                                ⏭️ Skip Batch
+                            </button>
+                        </div>
+                        
+                        <div style="background: #e6fffa; border: 1px solid #38b2ac; border-radius: 8px; padding: 15px; font-size: 14px; color: #234e52;">
+                            <strong>💡 How it works:</strong> One click will automatically open all ${currentBatch.length} emails in this batch with small delays between each email to ensure reliable opening.
+                        </div>
+                    `;
+                }
+                
+                function openCurrentBatch() {
+                    const currentBatch = emailsData.slice(currentIndex, Math.min(currentIndex + BATCH_SIZE, totalEmails));
+                    
+                    // Show processing status
+                    progressContent.innerHTML = `
+                        <h3 style="color: #38b2ac; margin-bottom: 25px;">🔄 Opening Batch ${batchesProcessed + 1}...</h3>
+                        <div style="background: #e6fffa; border: 2px solid #38b2ac; border-radius: 8px; padding: 20px; text-align: center;">
+                            <div class="spinner" style="
+                                width: 30px; 
+                                height: 30px; 
+                                border: 4px solid #b2f5ea; 
+                                border-top: 4px solid #38b2ac; 
+                                border-radius: 50%; 
+                                animation: spin 1s linear infinite;
+                                margin: 0 auto 15px;
+                            "></div>
+                            <div style="font-size: 16px; font-weight: bold; color: #234e52;">
+                                Opening ${currentBatch.length} emails automatically...
+                            </div>
+                            <div style="font-size: 14px; color: #2d5016; margin-top: 10px;">
+                                Please wait while we open each email with proper timing
+                            </div>
+                        </div>
+                        <style>
+                            @keyframes spin {
+                                0% { transform: rotate(0deg); }
+                                100% { transform: rotate(360deg); }
+                            }
+                        </style>
+                    `;
+                    
+                    // Open all emails in this batch automatically with staggered timing
+                    currentBatch.forEach((email, index) => {
+                        setTimeout(() => {
+                            try {
+                                console.log(`🚀 Opening email ${currentIndex + index + 1}/${totalEmails}: ${email.story}`);
+                                
+                                // Use window.open for better reliability with user interaction
+                                window.open(email.mailtoLink);
+                                
+                                successCount++;
+                                console.log(`✅ Successfully opened email for ${email.story}`);
+                            } catch (error) {
+                                console.error(`❌ Failed to open email for ${email.story}:`, error);
+                                failureCount++;
+                                retryQueue.push(email);
+                            }
+                        }, index * 800); // 800ms delay between each email in batch
+                    });
+                    
+                    // After opening all emails in batch, move to next batch
+                    setTimeout(() => {
+                        currentIndex += currentBatch.length;
+                        batchesProcessed++;
+                        processNextBatch();
+                    }, currentBatch.length * 800 + 1000); // Wait for all emails plus extra buffer
+                }
+                
+                function skipCurrentBatch() {
+                    const currentBatch = emailsData.slice(currentIndex, Math.min(currentIndex + BATCH_SIZE, totalEmails));
+                    failureCount += currentBatch.length;
+                    retryQueue.push(...currentBatch);
+                    currentIndex += currentBatch.length;
+                    batchesProcessed++;
+                    setTimeout(processNextBatch, 100);
+                }
+                
+                function processNextEmail() {
+                    // This function is now replaced by batch processing
+                    processNextBatch();
+                }
+                
+                function showCompletionStatus() {
+                    const successRate = Math.round((successCount / totalEmails) * 100);
+                    const hasRetries = retryQueue.length > 0;
+                    
+                    progressContent.innerHTML = `
+                        <h3 style="color: ${successRate >= 90 ? '#48bb78' : '#f6ad55'}; margin-bottom: 25px;">
+                            ${successRate >= 90 ? '✅' : '⚠️'} Email Processing Complete!
+                        </h3>
+                        
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 25px;">
+                            <div style="background: #e6fffa; padding: 20px; border-radius: 12px; border: 2px solid #38b2ac;">
+                                <div style="font-size: 24px; font-weight: bold; color: #38b2ac;">${successCount}</div>
+                                <div style="color: #4a5568;">Emails Opened</div>
+                            </div>
+                            <div style="background: ${failureCount > 0 ? '#fed7d7' : '#f0f9f0'}; padding: 20px; border-radius: 12px; border: 2px solid ${failureCount > 0 ? '#e53e3e' : '#48bb78'};">
+                                <div style="font-size: 24px; font-weight: bold; color: ${failureCount > 0 ? '#e53e3e' : '#48bb78'};">${failureCount}</div>
+                                <div style="color: #4a5568;">Failed/Skipped</div>
+                            </div>
+                            <div style="background: #e6f3ff; padding: 20px; border-radius: 12px; border: 2px solid #4299e1;">
+                                <div style="font-size: 24px; font-weight: bold; color: #4299e1;">${successRate}%</div>
+                                <div style="color: #4a5568;">Success Rate</div>
+                            </div>
+                        </div>
+                        
+                        <div style="background: #f8f9fa; padding: 20px; border-radius: 12px; margin-bottom: 20px; text-align: left;">
+                            <h4 style="margin: 0 0 15px 0; color: #2d3748;">📊 Summary Report:</h4>
+                            <div style="line-height: 1.6;">
+                                • <strong>Total Emails:</strong> ${totalEmails}<br>
+                                • <strong>Successfully Opened:</strong> ${successCount}<br>
+                                • <strong>Failed/Skipped:</strong> ${failureCount}<br>
+                                • <strong>Processing Method:</strong> Direct Outlook Automation (sent via Outlook, saved to Sent Items)<br>
+                                ${hasRetries ? `• <strong>Available for Retry:</strong> ${retryQueue.length}` : ''}
+                            </div>
+                        </div>
+                        
+                        ${hasRetries ? `
+                            <div style="margin-bottom: 20px;">
+                                <button onclick="retryFailedEmails()" style="
+                                    background: linear-gradient(135deg, #ed8936 0%, #dd6b20 100%); 
+                                    color: white; 
+                                    border: none; 
+                                    padding: 15px 30px; 
+                                    border-radius: 10px; 
+                                    cursor: pointer; 
+                                    font-size: 16px;
+                                    font-weight: bold;
+                                    margin-right: 15px;
+                                ">🔄 Retry Failed Emails (${retryQueue.length})</button>
+                            </div>
+                        ` : ''}
+                        
+                        <div style="margin-bottom: 20px;">
+                            <button onclick="closeEmailModal()" style="
+                                background: #4299e1; 
+                                color: white; 
+                                border: none; 
+                                padding: 15px 30px; 
+                                border-radius: 10px; 
+                                cursor: pointer; 
+                                font-size: 16px;
+                                font-weight: bold;
+                            ">Close</button>
+                        </div>
+                        
+                        <div style="background: ${successRate >= 90 ? '#d4edda' : '#fff3cd'}; border-radius: 8px; padding: 15px; font-size: 14px;">
+                            ${successRate >= 90 ? 
+                                '🎉 <strong>Excellent!</strong> All emails opened successfully via batch processing. Check your Outlook for email drafts.' :
+                                '💡 <strong>Tip:</strong> Batch processing opens 3 emails per click. You can retry failed emails or use the consolidated email option.'
+                            }
+                        </div>
+                    `;
+                }
+                
+                function retryFailedEmails() {
+                    if (retryQueue.length === 0) return;
+                    
+                    // Reset counters for retry
+                    currentIndex = 0;
+                    emailsData = [...retryQueue]; // Use retry queue as new email data
+                    retryQueue = [];
+                    successCount = 0;
+                    failureCount = 0;
+                    batchesProcessed = 0;
+                    
+                    // Restart batch process with failed emails
+                    setTimeout(processNextBatch, 500);
+                }
+                
+                function closeEmailModal() {
+                    if (modal && modal.parentNode) {
+                        modal.remove();
+                    }
+                    if (progressModal && progressModal.parentNode) {
+                        progressModal.remove();
+                    }
+                    delete window.sendAllIndividualEmails;
+                    delete window.openCurrentBatch;
+                    delete window.skipCurrentBatch;
+                    delete window.retryFailedEmails;
+                    delete window.closeEmailModal;
+                }
+                
+                // Make functions globally accessible
+                window.openCurrentBatch = openCurrentBatch;
+                window.skipCurrentBatch = skipCurrentBatch;
+                window.retryFailedEmails = retryFailedEmails;
+                window.closeEmailModal = closeEmailModal;
+                
+                // Start the batch processing
+                processNextBatch();
+            };
+
+            // Add consolidated email function as backup option
+            window.sendConsolidatedEmail = function() {
+                console.log(`📋 Creating consolidated email for all ${emailsData.length} stories...`);
+                
+                // Create the consolidated email content
+                const allEmails = emailsData.map(email => email.to).filter((value, index, self) => self.indexOf(value) === index);
+                const allCCs = emailsData.map(email => email.cc).filter((value, index, self) => self.indexOf(value) === index);
+                
+                const toList = allEmails.join(';');
+                const ccList = allCCs.join(';');
+                
+                const subject = `Multiple JIRA Stories Missing Information - ${epicKey}`;
+                
+                const emailBody = `Dear Team,
+
+Please find below the list of ${emailsData.length} JIRA stories that are missing required information and need your attention:
+
+${emailsData.map((email, index) => 
+`${index + 1}. Story: ${email.story}
+   Title: ${email.storyTitle}
+   Reporter: ${email.reporterName} (${email.to})
+   Assignee: ${email.assigneeName} (${email.cc})
+   
+   Missing Information:
+   ${email.missingFields.join(', ')}
+   
+   Please update this story with the missing information.
+   
+`).join('')}
+
+Please ensure all missing information is provided to keep our project on track.
+
+Best regards,
+Feature Lifecycle Navigator Team
+
+---
+This email was generated automatically by the Feature Lifecycle Navigator system.
+Epic: ${epicKey}
+Generated: ${new Date().toLocaleString()}`;
+
+                const encodedSubject = encodeURIComponent(subject);
+                const encodedBody = encodeURIComponent(emailBody);
+                const mailtoLink = `mailto:${toList}?cc=${ccList}&subject=${encodedSubject}&body=${encodedBody}`;
+                
+                // Try to open the consolidated email
+                try {
+                    window.open(mailtoLink);
+                    
+                    alert(`📋 Consolidated email created!\n\n✅ TO: ${allEmails.length} unique recipients\n✅ CC: ${allCCs.length} unique assignees\n✅ Stories: ${emailsData.length} total\n\nOne email window should open with all the information.`);
+                    
+                } catch (error) {
+                    console.error('Error opening consolidated email:', error);
+                    
+                    // Fallback: show the mailto link
+                    const fallbackModal = document.createElement('div');
+                    fallbackModal.style.cssText = `
+                        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+                        background: rgba(0,0,0,0.8); z-index: 10002; display: flex;
+                        align-items: center; justify-content: center;
+                    `;
+                    
+                    fallbackModal.innerHTML = `
+                        <div style="background: white; padding: 30px; border-radius: 12px; max-width: 600px; width: 90%;">
+                            <h3 style="color: #e53e3e; margin-bottom: 20px;">⚠️ Email Client Issue</h3>
+                            <p style="margin-bottom: 20px;">Could not automatically open your email client. Please copy the link below and paste it in your browser:</p>
+                            <textarea readonly style="width: 100%; height: 100px; margin-bottom: 20px; padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-family: monospace; font-size: 12px;">${mailtoLink}</textarea>
+                            <button onclick="this.parentElement.parentElement.remove()" style="background: #4299e1; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer;">Close</button>
+                        </div>
+                    `;
+                    
+                    document.body.appendChild(fallbackModal);
+                }
+                
+                // Close the original modal
+                modal.remove();
+                delete window.sendConsolidatedEmail;
+            };
+
+            // Add aggressive force function to bypass popup blockers
+            window.forceOpenAllEmails = function() {
+                console.log(`🚀 FORCE: Opening all ${emailsData.length} emails with aggressive bypass...`);
+                
+                alert(`🚀 FORCE MODE: Opening ${emailsData.length} emails NOW!\n\nThis will:\n1. Try multiple window.open methods\n2. Create temporary links\n3. Use focus tricks to bypass blockers\n\nPlease allow popups when prompted!`);
+                
+                emailsData.forEach((email, index) => {
+                    // Use multiple strategies immediately
+                    setTimeout(() => {
+                        console.log(`FORCE: Opening email ${index + 1} for ${email.story}`);
+                        
+                        // Strategy 1: Standard window.open with unique name
+                        const win1 = window.open(email.mailtoLink, `email_${email.story}_${Date.now()}_${index}`);
+                        
+                        // Strategy 2: Create and auto-click invisible link
+                        const tempLink = document.createElement('a');
+                        tempLink.href = email.mailtoLink;
+                        tempLink.target = '_blank';
+                        tempLink.style.display = 'none';
+                        tempLink.id = `templink_${index}`;
+                        document.body.appendChild(tempLink);
+                        
+                        // Auto-click after tiny delay
+                        setTimeout(() => {
+                            tempLink.click();
+                            setTimeout(() => {
+                                if (document.getElementById(`templink_${index}`)) {
+                                    document.body.removeChild(tempLink);
+                                }
+                            }, 100);
+                        }, 10);
+                        
+                        // Strategy 3: Try to focus and reopen if blocked
+                        if (!win1 || win1.closed) {
+                            setTimeout(() => {
+                                try {
+                                    window.open(email.mailtoLink, '_blank');
+                                } catch (e) {
+                                    console.log(`Fallback failed for ${email.story}:`, e);
+                                }
+                            }, 20);
+                        }
+                        
+                    }, index * 25); // Even shorter delays - 25ms
+                });
+                
+                setTimeout(() => {
+                    alert(`🎯 FORCE COMPLETE!\n\nAttempted to force-open all ${emailsData.length} emails using multiple bypass strategies.\n\n✅ Check your email client now!\n\nIf some emails didn't open, your browser has very strict popup blocking.`);
+                    modal.remove();
+                    delete window.forceOpenAllEmails;
+                    delete window.sendAllIndividualEmails;
+                }, (emailsData.length * 25) + 500);
+            };
+
+        } // Close showIndividualEmailModal
 
         function getStoriesForEmailEpic(epicKey) {
             console.log('Getting stories for epic:', epicKey);
@@ -2119,23 +4337,58 @@
             const featureText = featureInfo ? `for Feature ${featureInfo}` : '';
             
             return {
-                subject: 'Action Required: Complete Missing Fields in Your JIRA Stories',
+                subject: 'Action Required: Missing Information in Your JIRA Stories',
                 body: `Dear ${reporterName},
 
-Please complete the missing information in your stories ${featureText}. The following stories require your attention:
+As part of a recent review, we identified missing required information in the following JIRA stories ${featureText}:
 
 ${storyList}
 
-Please complete the missing information to ensure proper story tracking and development workflow.
+Requested actions:
+- Provide clear and complete descriptions where missing
+- Add high-level acceptance criteria for each story
+- Coordinate with the assignee(s) as needed
 
-Required Actions:
-- Add detailed descriptions where missing
-- Complete high level acceptance criteria for all stories
-- Coordinate with assignees as needed
+Please update the above items at your earliest convenience, or share an estimated timeline if additional input is required.
 
-If you have any questions or need assistance, please reach out to your team lead.
+Thank you for your prompt attention.
 
-Best regards,
+Regards,
+Zuha Mujawar`
+            };
+        }
+
+        function generateIndividualStoryEmailTemplate(primaryRecipientName, story, ccRecipientName, featureInfo) {
+            const issues = [];
+            const descriptionEmpty = isFieldEmpty(story.fields.description, 'description');
+            const criteriaEmpty = isFieldEmpty(story.fields.customfield_10056, 'customfield_10056');
+
+            if (descriptionEmpty) issues.push('Missing Description');
+            if (criteriaEmpty) issues.push('Missing High-Level Acceptance Criteria');
+
+            const featureText = featureInfo ? ` for Feature ${featureInfo}` : '';
+            const jiraBaseUrl = 'https://lumen.atlassian.net';
+            const storyLink = `${jiraBaseUrl}/browse/${story.key}`;
+
+            return {
+                subject: `Action Required: Missing Information in JIRA Story ${story.key}${featureText}`,
+                body: `Dear ${primaryRecipientName},
+
+I hope you are well. During a recent review, we identified missing required information in the following JIRA story${featureText}:
+
+Story: ${story.key} — ${story.fields.summary}
+Missing items: ${issues.join(', ')}
+
+Requested actions:
+${descriptionEmpty ? '- Provide a clear and complete description.\n' : ''}${criteriaEmpty ? '- Add high-level acceptance criteria that define done.\n' : ''}
+
+You can access the story here: ${storyLink}
+
+Please update the story at your earliest convenience, or share an estimated timeline if additional input is required. If you have any questions, feel free to reply and I will be happy to assist.
+
+Thank you for your prompt attention.
+
+Regards,
 Zuha Mujawar`
             };
         }
