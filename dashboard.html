@@ -300,6 +300,7 @@
         let searchCancelled = false;
         const loadingStateElement = document.getElementById('loadingState');
         const defaultLoadingHtml = loadingStateElement ? loadingStateElement.innerHTML : '';
+        const epicNarrativeCache = new Map();
 
         function resetLoadingState() {
             if (loadingStateElement) {
@@ -396,6 +397,17 @@
             const jiraBaseUrl = 'https://lumen.atlassian.net';
             const jiraUrl = `${jiraBaseUrl}/browse/${issueKey}`;
             window.open(jiraUrl, '_blank');
+        }
+
+        function getFixVersionLabel(fields) {
+            const versions = Array.isArray(fields?.fixVersions) ? fields.fixVersions : [];
+            if (!versions.length) {
+                return 'No Fix Version';
+            }
+            const names = versions
+                .map(version => (typeof version === 'string' ? version : version?.name))
+                .filter(name => typeof name === 'string' && name.trim().length > 0);
+            return names.length ? names.join(', ') : 'No Fix Version';
         }
 
         async function searchJira() {
@@ -1711,6 +1723,7 @@
         }
 
         function createBugCard(bug) {
+            const fixVersionLabel = getFixVersionLabel(bug.fields);
             return `
                 <div class="bug-card" style="background: #fef5e7; border: 1px solid #f6ad55; border-radius: 8px; padding: 12px; margin: 8px 0;">
                     <div class="bug-header" style="display: flex; align-items: center; margin-bottom: 8px;">
@@ -1729,6 +1742,9 @@
                     <div class="bug-details" style="display: flex; justify-content: space-between; align-items: center; font-size: 13px; color: #975a16;">
                         <div class="bug-status">
                             <i class="fas fa-info-circle" style="margin-right: 4px;"></i>Status: ${bug.fields.status.name}
+                        </div>
+                        <div class="bug-status" style="display: flex; align-items: center; gap: 4px;">
+                            <i class="fas fa-tag"></i>${fixVersionLabel}
                         </div>
                         <div class="bug-assignee">
                             <i class="fas fa-user" style="margin-right: 4px;"></i>Assignee: ${bug.fields.assignee ? bug.fields.assignee.displayName : 'Unassigned'}
@@ -1807,6 +1823,7 @@
             const bugCountLabel = bugsLoading ? 'Loading...' : `${bugCount} total count`;
             const actionsHtml = renderFeatureActions(epic.key, stories, storiesLoading);
             const cardId = `feature-card-${epic.key}`;
+            const epicFixVersion = getFixVersionLabel(epic.fields);
 
             // Extract Epic Feature Number from various possible fields
             let featureNumber = '';
@@ -1869,6 +1886,9 @@
                         <div class="feature-title">
                             <i class="fas fa-plus-circle feature-toggle-icon" style="color: #3182ce; margin-right: 8px; transition: transform 0.3s ease;"></i>
                             <strong>Feature - ${epic.key}: ${epic.fields.summary}</strong>
+                            <span style="margin-left: 12px; background: #eef2ff; color: #3730a3; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px;">
+                                <i class="fas fa-tag"></i>${epicFixVersion}
+                            </span>
                         </div>
                         <div class="feature-actions" id="feature-actions-${epic.key}" style="display: flex; align-items: center; gap: 8px;">
                             ${actionsHtml}
@@ -2145,6 +2165,13 @@
             const sprintFieldValue = story?.fields?.[sprintFieldId] ?? story?.fields?.[SPRINT_FIELD_FALLBACK];
             const sprintName = getLatestSprintName(sprintFieldValue);
             const sprintDisplay = sprintName || 'No Active Sprint';
+            const fixVersionLabel = getFixVersionLabel(story.fields);
+            const statusName = story.fields?.status?.name || 'Unknown';
+            const isInProgress = typeof statusName === 'string' && statusName.toLowerCase() === 'in progress';
+            const hasSprint = Boolean(sprintName);
+            const hasFixVersion = Array.isArray(story.fields?.fixVersions) && story.fields.fixVersions.length > 0;
+            const highlightSprint = isInProgress && !hasSprint;
+            const highlightFixVersion = isInProgress && !hasFixVersion;
 
             console.log(`Rendering story ${story.key} sprint info`, {
                 sprintFieldId,
@@ -2215,9 +2242,17 @@
                         </div>
                         
                         <!-- Sprint -->
-                        <div style="margin-right: 16px; min-width: 150px; font-size: 13px; color: #1e3a8a; display: flex; align-items: center; gap: 6px;">
+                        <div style="margin-right: 16px; min-width: 150px; font-size: 13px; display: flex; align-items: center; gap: 6px; ${highlightSprint ? 'background: #fee2e2; border: 1px solid #f87171; color: #b91c1c; padding: 4px 10px; border-radius: 6px;' : 'color: #1e3a8a;'}">
                             <i class="fas fa-flag-checkered"></i>
                             <span>${sprintDisplay}</span>
+                            ${highlightSprint ? '<i class="fas fa-exclamation-triangle" title="In-progress stories should be assigned to a sprint." style="color: #dc2626; font-size: 12px;"></i>' : ''}
+                        </div>
+
+                        <!-- Fix Version -->
+                        <div style="margin-right: 16px; min-width: 150px; font-size: 13px; display: flex; align-items: center; gap: 6px; ${highlightFixVersion ? 'background: #fef3c7; border: 1px solid #f59e0b; color: #b45309; padding: 4px 10px; border-radius: 6px;' : 'color: #374151;'}">
+                            <i class="fas fa-tag"></i>
+                            <span>${fixVersionLabel}</span>
+                            ${highlightFixVersion ? '<i class="fas fa-exclamation-triangle" title="In-progress stories should specify a fix version." style="color: #d97706; font-size: 12px;"></i>' : ''}
                         </div>
 
                         <!-- Assignee -->
@@ -2262,6 +2297,13 @@
             const sprintFieldValue = story?.fields?.[sprintFieldId] ?? story?.fields?.[SPRINT_FIELD_FALLBACK];
             const sprintName = getLatestSprintName(sprintFieldValue);
             const sprintDisplay = sprintName || 'No Active Sprint';
+            const fixVersionLabel = getFixVersionLabel(story.fields);
+            const statusName = story.fields?.status?.name || 'Unknown';
+            const isInProgress = typeof statusName === 'string' && statusName.toLowerCase() === 'in progress';
+            const hasSprint = Boolean(sprintName);
+            const hasFixVersion = Array.isArray(story.fields?.fixVersions) && story.fields.fixVersions.length > 0;
+            const highlightSprint = isInProgress && !hasSprint;
+            const highlightFixVersion = isInProgress && !hasFixVersion;
 
             console.log(`Rendering detail card sprint info for ${story.key}`, {
                 sprintFieldId,
@@ -2285,7 +2327,8 @@
                     </div>
                     <div class="story-title">${story.fields.summary}</div>
                     <div class="story-status"><i class="fas fa-info-circle"></i> Status: ${story.fields.status.name}</div>
-                    <div class="story-sprint"><i class="fas fa-flag-checkered"></i> Sprint: ${sprintDisplay}</div>
+                    <div class="story-sprint" style="${highlightSprint ? 'color: #b91c1c; font-weight: 600;' : ''}"><i class="fas fa-flag-checkered"></i> Sprint: ${sprintDisplay}${highlightSprint ? ' <i class="fas fa-exclamation-triangle" title="In-progress stories should be assigned to a sprint." style="color: #dc2626; font-size: 12px;"></i>' : ''}</div>
+                    <div class="story-sprint" style="${highlightFixVersion ? 'color: #b45309; font-weight: 600;' : ''}"><i class="fas fa-tag"></i> Fix Version: ${fixVersionLabel}${highlightFixVersion ? ' <i class="fas fa-exclamation-triangle" title="In-progress stories should specify a fix version." style="color: #d97706; font-size: 12px;"></i>' : ''}</div>
                     <div class="story-assignee"><i class="fas fa-user"></i> Assignee: ${story.fields.assignee ? story.fields.assignee.displayName : 'Unassigned'}</div>
                     ${customField10221 ? `<div class="story-custom-field" style="color: #4a5568; font-size: 0.9rem; margin-top: 8px;"><i class="fas fa-tag"></i> Custom Field: ${customField10221}</div>` : ''}
                     <div class="story-details" id="details-${story.key}">
@@ -2529,41 +2572,26 @@
             }
 
             // Clear previous content
-            dropdown.innerHTML = '';
-            
-            // Create suggestion elements with proper event listeners
-            suggestions.forEach((version, index) => {
-                const suggestionDiv = document.createElement('div');
-                suggestionDiv.className = 'suggestion-item';
-                suggestionDiv.setAttribute('data-index', index);
-                
-                const mainDiv = document.createElement('div');
-                mainDiv.className = 'suggestion-main';
-                mainDiv.textContent = version.name;
-                suggestionDiv.appendChild(mainDiv);
-                
-                if (version.description) {
-                    const descDiv = document.createElement('div');
-                    descDiv.className = 'suggestion-desc';
-                    descDiv.textContent = version.description;
-                    suggestionDiv.appendChild(descDiv);
-                }
-                
-                // Add click event listener
-                suggestionDiv.addEventListener('click', function() {
-                    console.log('Suggestion clicked:', version.name);
-                    selectSuggestion(version.name);
-                });
-                
-                dropdown.appendChild(suggestionDiv);
-            });
-            
-            dropdown.style.display = 'block';
-            currentHighlight = -1;
-            console.log('Dropdown shown with', suggestions.length, 'suggestions');
-        }
-
-        function hideSuggestions() {
+                    detailsDiv.innerHTML = `
+                        <div style="margin-bottom: 15px;">
+                            <h4 style="margin: 0 0 8px 0; color: #1f2937; font-size: 14px;">
+                                <i class="fas fa-file-alt" style="color: #f59e0b; margin-right: 6px;"></i>
+                                Description
+                            </h4>
+                            <div style="background: white; padding: 10px; border-radius: 6px; font-size: 13px; line-height: 1.5; color: #4b5563; border: 1px solid #e5e7eb;">
+                                ${formattedDescription.content || '<em style="color: #9ca3af;">No description provided for this story.</em>'}
+                            </div>
+                        </div>
+                        
+                        <div>
+                            <h4 style="margin: 0 0 8px 0; color: #1f2937; font-size: 14px;">
+                                <i class="fas fa-check-circle" style="color: #22c55e; margin-right: 6px;"></i>
+                                High Level Acceptance Criteria
+                            </h4>
+                            <div style="background: white; padding: 10px; border-radius: 6px; font-size: 13px; line-height: 1.5; color: #4b5563; border: 1px solid #e5e7eb;">
+                                ${formattedAcceptanceCriteria.content || '<em style="color: #9ca3af;">No high level acceptance criteria defined for this story.</em>'}
+                            </div>
+                        </div>
             setTimeout(() => {
                 document.getElementById('suggestionsDropdown').style.display = 'none';
             }, 200);
@@ -2897,6 +2925,7 @@
                 
                 if (story && story.fields) {
                     const detailsDiv = document.getElementById(`details-${storyKey}`);
+                    const storyEpicKey = story.fields?.customfield_10014 || story.fields?.epic?.key || story.fields?.parent?.key || null;
                     
                     // Extract description from rendered fields first, then regular fields
                     let description = null;
@@ -2931,6 +2960,24 @@
                     // Format description and acceptance criteria
                     const formattedDescription = formatDescription(description, storyKey);
                     const formattedAcceptanceCriteria = formatAcceptanceCriteria(acceptanceCriteria, storyKey);
+
+                    const descriptionNeedsSupport = formattedDescription.isEmpty;
+                    const acceptanceNeedsSupport = formattedAcceptanceCriteria.isEmpty;
+                    let suggestionBlockHtml = '';
+
+                    if ((descriptionNeedsSupport || acceptanceNeedsSupport) && storyEpicKey) {
+                        try {
+                            const epicSupport = await getEpicNarrativeSupport(storyEpicKey);
+                            if (epicSupport) {
+                                suggestionBlockHtml = renderEpicSuggestionBlock(storyEpicKey, {
+                                    descriptionLines: descriptionNeedsSupport ? epicSupport.descriptionLines : [],
+                                    acceptanceLines: acceptanceNeedsSupport ? epicSupport.acceptanceLines : []
+                                });
+                            }
+                        } catch (suggestionError) {
+                            console.warn(`Suggestion generation failed for ${storyKey}:`, suggestionError);
+                        }
+                    }
                     
                     // Display the details
                     detailsDiv.innerHTML = `
@@ -2939,32 +2986,32 @@
                                 <i class="fas fa-file-alt" style="color: #f59e0b; margin-right: 6px;"></i>
                                 Description
                             </h4>
-                            <div style="background: white; padding: 10px; border-radius: 6px; font-size: 13px; line-height: 1.5; color: #4b5563;">
-                                ${formattedDescription.content}
+                            <div style="background: white; padding: 10px; border-radius: 6px; font-size: 13px; line-height: 1.5; color: #4b5563; border: 1px solid #e5e7eb;">
+                                ${formattedDescription.content || '<em style="color: #9ca3af;">No description provided for this story.</em>'}
                             </div>
                         </div>
-                        
+
                         <div>
                             <h4 style="margin: 0 0 8px 0; color: #1f2937; font-size: 14px;">
                                 <i class="fas fa-check-circle" style="color: #22c55e; margin-right: 6px;"></i>
                                 High Level Acceptance Criteria
                             </h4>
-                            <div style="background: white; padding: 10px; border-radius: 6px; font-size: 13px; line-height: 1.5; color: #4b5563;">
-                                ${formattedAcceptanceCriteria.content}
+                            <div style="background: white; padding: 10px; border-radius: 6px; font-size: 13px; line-height: 1.5; color: #4b5563; border: 1px solid #e5e7eb;">
+                                ${formattedAcceptanceCriteria.content || '<em style="color: #9ca3af;">No high level acceptance criteria defined for this story.</em>'}
                             </div>
                         </div>
-                        
+                        ${suggestionBlockHtml}
+
                         <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #e5e7eb; font-size: 12px; color: #6b7280;">
                             <strong>Status:</strong> ${story.fields.status ? story.fields.status.name : 'Unknown'} | 
                             <strong>Assignee:</strong> ${story.fields.assignee ? story.fields.assignee.displayName : 'Unassigned'} |
                             <strong>Issue Type:</strong> ${story.fields.issuetype ? story.fields.issuetype.name : 'Unknown'}
                         </div>
-                        
+
                         <div style="margin-top: 8px; font-size: 11px; color: #9ca3af;">
                             <strong>Debug:</strong> Check console for field details
                         </div>
                     `;
-                    
                     // Enhanced debug logging for customfield_10056
                     console.log(`Story ${storyKey} - customfield_10056 analysis:`, {
                         raw_value: story.fields.customfield_10056,
@@ -2987,7 +3034,7 @@
         function formatDescription(description, issueKey) {
             if (!description || description === 'No description available') {
                 return {
-                    content: `<em style="color: #9ca3af;">No description provided for this story.</em>`,
+                    content: '',
                     isEmpty: true,
                     issueKey: issueKey
                 };
@@ -3026,7 +3073,7 @@
             
             if (!criteria || criteria === 'No acceptance criteria defined' || criteria === 'No high level acceptance criteria defined for this feature') {
                 return {
-                    content: `<em style="color: #9ca3af;">No high level acceptance criteria defined for this story.</em>`,
+                    content: '',
                     isEmpty: true,
                     issueKey: issueKey
                 };
@@ -3138,6 +3185,200 @@
                 issueKey: issueKey
             };
         }
+
+        function escapeHtml(value) {
+            if (value === null || value === undefined) {
+                return '';
+            }
+            return String(value).replace(/[&<>"']/g, match => {
+                switch (match) {
+                    case '&':
+                        return '&amp;';
+                    case '<':
+                        return '&lt;';
+                    case '>':
+                        return '&gt;';
+                    case '"':
+                        return '&quot;';
+                    case "'":
+                        return '&#39;';
+                    default:
+                        return match;
+                }
+            });
+        }
+
+        function extractSuggestionLinesFromHtml(html, maxLines = 3) {
+            if (!html || typeof html !== 'string') {
+                return [];
+            }
+
+            try {
+                const temp = document.createElement('div');
+                temp.innerHTML = html;
+                let textContent = temp.textContent || temp.innerText || '';
+                textContent = textContent
+                    .replace(/\u2022/g, '\n')
+                    .replace(/\r/g, '\n')
+                    .replace(/\t/g, ' ')
+                    .trim();
+
+                let segments = textContent
+                    .split(/\n+/)
+                    .map(segment => segment.trim())
+                    .filter(Boolean);
+
+                if (segments.length === 0) {
+                    const sentenceSplit = textContent
+                        .replace(/([.!?])\s+/g, '$1|')
+                        .split('|')
+                        .map(segment => segment.trim())
+                        .filter(Boolean);
+                    segments = sentenceSplit;
+                }
+
+                return segments.slice(0, maxLines);
+            } catch (error) {
+                console.warn('Failed to extract suggestion lines:', error);
+                return [];
+            }
+        }
+
+        async function getEpicNarrativeSupport(epicKey) {
+            if (!epicKey) {
+                return null;
+            }
+
+            const cached = epicNarrativeCache.get(epicKey);
+            if (cached) {
+                if (typeof cached.then === 'function') {
+                    return cached;
+                }
+                return cached;
+            }
+
+            const fetchPromise = (async () => {
+                try {
+                    const response = await fetch(`http://localhost:3000/issue/${epicKey}`);
+                    if (!response.ok) {
+                        throw new Error(`HTTP error ${response.status}`);
+                    }
+
+                    const epic = await response.json();
+                    const renderedFields = epic.renderedFields || {};
+                    const fields = epic.fields || {};
+                    const epicSummary = typeof fields.summary === 'string' ? fields.summary.trim() : '';
+
+                    const rawDescription = renderedFields.description || fields.description || '';
+                    const acceptanceFieldKey = 'customfield_10056';
+                    const rawAcceptance = renderedFields[acceptanceFieldKey] || fields[acceptanceFieldKey] || '';
+
+                    const formattedDescription = formatDescription(rawDescription, epicKey);
+                    const formattedAcceptance = formatAcceptanceCriteria(rawAcceptance, epicKey);
+
+                    const descriptionLines = formattedDescription.isEmpty
+                        ? []
+                        : extractSuggestionLinesFromHtml(formattedDescription.content, 5);
+
+                    let acceptanceLines = formattedAcceptance.isEmpty
+                        ? []
+                        : extractSuggestionLinesFromHtml(formattedAcceptance.content, 5);
+
+                    if (!Array.isArray(acceptanceLines) || acceptanceLines.length === 0) {
+                        const summaryFragment = epicSummary || `feature ${epicKey}`;
+                        const narrativeFocus = descriptionLines.length > 0
+                            ? descriptionLines[0]
+                            : 'the primary capability described in the feature narrative';
+                        const secondaryFocus = descriptionLines.length > 1
+                            ? descriptionLines[1]
+                            : 'supporting scenarios and edge cases';
+
+                        acceptanceLines = [
+                            `Confirm the end-to-end flow for ${summaryFragment} delivers the intended business outcome.`,
+                            `Validate that the solution covers: ${narrativeFocus}.`,
+                            `Ensure ${secondaryFocus} meet Definition of Done and non-functional expectations.`
+                        ];
+                    }
+
+                    const uniqueAcceptance = Array.from(new Set(acceptanceLines
+                        .map(line => line.trim())
+                        .filter(Boolean)));
+
+                    return {
+                        descriptionLines: Array.isArray(descriptionLines)
+                            ? descriptionLines.slice(0, 3)
+                            : [],
+                        acceptanceLines: uniqueAcceptance.slice(0, 3)
+                    };
+                } catch (error) {
+                    console.warn(`Unable to load epic narrative for ${epicKey}:`, error);
+                    return null;
+                }
+            })();
+
+            epicNarrativeCache.set(epicKey, fetchPromise);
+
+            return fetchPromise
+                .then(data => {
+                    epicNarrativeCache.set(epicKey, data);
+                    return data;
+                })
+                .catch(error => {
+                    epicNarrativeCache.delete(epicKey);
+                    throw error;
+                });
+        }
+
+        function renderEpicSuggestionBlock(epicKey, { descriptionLines = [], acceptanceLines = [] } = {}) {
+            const hasDescription = Array.isArray(descriptionLines) && descriptionLines.length > 0;
+            const hasAcceptance = Array.isArray(acceptanceLines) && acceptanceLines.length > 0;
+
+            if (!hasDescription && !hasAcceptance) {
+                return '';
+            }
+
+            const sections = [];
+
+            if (hasDescription) {
+                const items = descriptionLines
+                    .map(line => `<li style="margin-bottom: 4px;">${escapeHtml(line)}</li>`)
+                    .join('');
+                sections.push(`
+                    <div style="margin-top: 12px;">
+                        <div style="font-size: 12px; font-weight: 600; color: #1e3a8a; letter-spacing: 0.01em;">Suggested Description Seeds</div>
+                        <ul style="margin: 8px 0 0 18px; color: #1f2937; font-size: 12px; line-height: 1.5;">
+                            ${items}
+                        </ul>
+                    </div>
+                `);
+            }
+
+            if (hasAcceptance) {
+                const items = acceptanceLines
+                    .map(line => `<li style="margin-bottom: 4px;">${escapeHtml(line)}</li>`)
+                    .join('');
+                sections.push(`
+                    <div style="margin-top: 12px;">
+                        <div style="font-size: 12px; font-weight: 600; color: #1e3a8a; letter-spacing: 0.01em;">Suggested Acceptance Criteria Seeds</div>
+                        <ul style="margin: 8px 0 0 18px; color: #1f2937; font-size: 12px; line-height: 1.5;">
+                            ${items}
+                        </ul>
+                    </div>
+                `);
+            }
+
+            return `
+                <div style="margin-top: 16px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 12px;">
+                    <div style="font-weight: 600; color: #1d4ed8; font-size: 13px; display: flex; align-items: center; gap: 6px;">
+                        <i class="fas fa-lightbulb"></i>
+                        Suggested starter content from Feature ${escapeHtml(epicKey)}
+                    </div>
+                    ${sections.join('')}
+                </div>
+            `;
+        }
+
+        function attachEditableBlockHandlers() {}
 
         function extractTextFromCustomField10056(obj) {
             console.log('extractTextFromCustomField10056 called with:', obj);

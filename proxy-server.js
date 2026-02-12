@@ -37,6 +37,36 @@ const cacheStore = new Map();
 const pendingQueue = [];
 let activeJobCount = 0;
 
+function convertPlainTextToADF(input) {
+    const normalized = typeof input === 'string' ? input.replace(/\r\n/g, '\n') : '';
+    const lines = normalized.split('\n');
+    const content = lines.map(line => {
+        const trimmedLine = line.replace(/\s+$/g, '');
+        if (!trimmedLine) {
+            return { type: 'paragraph', content: [] };
+        }
+        return {
+            type: 'paragraph',
+            content: [
+                {
+                    type: 'text',
+                    text: trimmedLine
+                }
+            ]
+        };
+    });
+
+    if (!content.length) {
+        content.push({ type: 'paragraph', content: [] });
+    }
+
+    return {
+        type: 'doc',
+        version: 1,
+        content
+    };
+}
+
 function computeCacheKey(jql, fields, maxResults, startAt, nextPageToken) {
     const normalizedFields = Array.from(new Set(fields)).sort();
     return JSON.stringify({
@@ -612,6 +642,50 @@ app.get('/issue/:key', async (req, res) => {
     } catch (error) {
         console.error('Issue API Error:', error.response?.data || error.message);
         res.status(500).json({ 
+            error: error.message,
+            details: error.response?.data || 'No additional details available'
+        });
+    }
+});
+
+app.put('/issue/:key', async (req, res) => {
+    try {
+        const issueKey = req.params.key;
+        const { description, acceptanceCriteria } = req.body || {};
+
+        const fields = {};
+
+        if (typeof description === 'string') {
+            fields.description = convertPlainTextToADF(description);
+        }
+
+        if (typeof acceptanceCriteria === 'string') {
+            fields['customfield_10056'] = acceptanceCriteria.trim().length > 0
+                ? acceptanceCriteria
+                : null;
+        }
+
+        if (Object.keys(fields).length === 0) {
+            return res.status(400).json({ error: 'No updatable fields provided' });
+        }
+
+        await axios.put(
+            `${JIRA_CONFIG.baseUrl}rest/api/3/issue/${issueKey}`,
+            { fields },
+            {
+                headers: {
+                    'Authorization': `Basic ${Buffer.from(JIRA_CONFIG.username + ':' + JIRA_CONFIG.apiToken).toString('base64')}`,
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                }
+            }
+        );
+
+        res.json({ success: true });
+    } catch (error) {
+        const status = error.response?.status || 500;
+        console.error('Issue update error:', error.response?.data || error.message);
+        res.status(status).json({
             error: error.message,
             details: error.response?.data || 'No additional details available'
         });
