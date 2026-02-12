@@ -29,7 +29,7 @@
         .search-section h2 { font-size: 1.5rem; font-weight: 600; color: #2d3748; margin-bottom: 20px; }
         .search-controls { display: flex; gap: 15px; align-items: center; flex-wrap: wrap; }
         .search-input {
-            flex: 1; min-width: 800px; width: 100%; padding: 15px 20px; border: 2px solid #e2e8f0;
+            flex: 1; min-width: min(100%, 280px); width: 100%; padding: 15px 20px; border: 2px solid #e2e8f0;
             border-radius: 12px; font-size: 16px; font-family: inherit; transition: all 0.3s ease;
         }
         .search-input:focus { outline: none; border-color: #3182ce; box-shadow: 0 0 0 3px rgba(49, 130, 206, 0.1); }
@@ -37,7 +37,7 @@
         .search-container {
             position: relative;
             flex: 1;
-            min-width: 800px;
+            min-width: min(100%, 320px);
         }
         
         .suggestions-dropdown {
@@ -55,128 +55,198 @@
             display: none;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
         }
-        
+
         .suggestion-item {
-            padding: 10px 15px;
+            padding: 12px 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
             cursor: pointer;
-            border-bottom: 1px solid #f1f5f9;
-            transition: background-color 0.2s ease;
+            transition: background 0.2s ease;
         }
-        
-        .suggestion-item:hover, .suggestion-item.highlighted {
-            background-color: #f8fafc;
-        }
-        
-        .suggestion-item:last-child {
-            border-bottom: none;
-        }
-        
-        .suggestion-main {
+
+        .suggestion-item strong {
+            color: #1a202c;
             font-weight: 600;
-            color: #2d3748;
         }
-        
-        .suggestion-desc {
-            font-size: 0.85rem;
-            color: #718096;
-            margin-top: 2px;
+
+        .suggestion-item small {
+            color: #64748b;
+            font-size: 0.75rem;
         }
-        .btn {
-            padding: 15px 30px; border: none; border-radius: 12px; font-size: 16px;
-            font-weight: 600; cursor: pointer; transition: all 0.3s ease;
-            display: inline-flex; align-items: center; gap: 8px; text-decoration: none;
+
+        .suggestion-item.highlighted,
+        .suggestion-item:hover {
+            background: #ebf8ff;
         }
-        .btn-primary { background: linear-gradient(135deg, #3182ce, #2c5aa0); color: white; }
-        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(49, 130, 206, 0.4); }
-        .btn-secondary { background: linear-gradient(135deg, #718096, #4a5568); color: white; }
-        .btn-secondary:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(113, 128, 150, 0.4); }
-        .loading { text-align: center; color: white; padding: 60px 20px; display: none; }
-        .loading h3 { font-size: 1.5rem; margin-bottom: 10px; }
-        .loading .spinner {
-            width: 40px; height: 40px; border: 4px solid rgba(255, 255, 255, 0.3);
-            border-top: 4px solid white; border-radius: 50%; animation: spin 1s linear infinite; margin: 20px auto;
-        }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        .empty-state { text-align: center; color: white; padding: 60px 20px; }
-        .empty-state h3 { font-size: 1.8rem; margin-bottom: 15px; font-weight: 600; }
-        .empty-state p { font-size: 1.1rem; opacity: 0.9; max-width: 600px; margin: 0 auto; line-height: 1.6; }
-        .results { margin-top: 30px; display: none; }
-        .feature-card {
-            background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px);
-            border-radius: 20px; margin: 20px 0; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-            transition: all 0.3s ease; overflow: hidden;
-        }
-        .feature-card:hover { transform: translateY(-5px); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15); }
-        .feature-header {
-            padding: 25px 30px; cursor: pointer; font-weight: 600; color: #2d3748;
-            display: flex; align-items: center; justify-content: space-between;
-            background: linear-gradient(135deg, #f7fafc 0%, #edf2f7 100%);
-        }
-        .feature-header:hover { background: linear-gradient(135deg, #edf2f7 0%, #e2e8f0 100%); }
-        .feature-header i { font-size: 1.2rem; color: #3182ce; margin-right: 12px; }
-        .feature-title { display: flex; align-items: center; flex: 1; }
-        .feature-toggle-icon { transition: transform 0.3s ease; }
-        .feature-card.expanded .feature-toggle-icon { transform: rotate(45deg); }
-        .feature-details { display: none; padding: 30px; background: white; }
-        .section-toggle-icon { 
-            transition: transform 0.3s ease, color 0.3s ease; 
-            cursor: pointer;
-        }
-        .section-expanded .section-toggle-icon { 
-            transform: rotate(45deg); 
-            color: #dc2626 !important;
-        }
-        .section-toggle-icon:hover {
-            transform: scale(1.1);
-        }
-        
-        .feature-branch-structure { font-family: 'Inter', sans-serif; }
-        .branch-item { margin-bottom: 10px; }
-        .branch-item strong { color: #1f2937; font-size: 14px; }
-        .sub-details { margin-left: 20px; margin-top: 8px; }
-        .story-branch-item, .bug-branch-item { 
-            padding: 8px 0; 
-            border-bottom: 1px solid #f3f4f6; 
-            font-size: 13px; 
-            line-height: 1.4;
-        }
-        .story-branch-item:last-child, .bug-branch-item:last-child { border-bottom: none; }
-        .story-grid {
-            display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-            gap: 20px; margin-top: 20px;
-        }
-        
-        .story-list {
-            margin-top: 15px;
-        }
-        
-        .story-list-item {
-            position: relative;
-        }
-        
-        .story-list-item .story-details {
-            position: static !important;
-            margin-top: 12px !important;
-            border-radius: 6px !important;
-            border: 1px solid #e2e8f0 !important;
-            background: #f8fafc !important;
-            box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.06) !important;
-            z-index: auto !important;
-        }
-        
-                .story-card {
-            background: #e6f3ff; border: 1px solid #4a90e2; border-radius: 8px; padding: 12px; margin: 8px 0;
-            transition: all 0.3s ease;
-        }
-        .story-card:hover { border-color: #3182ce; box-shadow: 0 8px 25px rgba(49, 130, 206, 0.1); }
-        
+
         .story-details {
-            background: #f7fafc; 
-            border-top: 1px solid #e2e8f0; 
-            margin-top: 12px; 
-            padding: 12px; 
+            background: #f7fafc;
+            border-top: 1px solid #e2e8f0;
+            margin-top: 12px;
+            padding: 12px;
             border-radius: 6px;
             display: none;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 20px;
+            border-radius: 12px;
+            border: none;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            font-size: 0.95rem;
+        }
+
+        .btn:focus-visible {
+            outline: 3px solid rgba(49, 130, 206, 0.35);
+            outline-offset: 2px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #4299e1, #3182ce);
+            color: white;
+            box-shadow: 0 8px 18px rgba(66, 153, 225, 0.25);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 12px 24px rgba(49, 130, 206, 0.3);
+        }
+
+        .btn-secondary {
+            background: rgba(226, 232, 240, 0.8);
+            color: #1a202c;
+        }
+
+        .btn-secondary:hover {
+            transform: translateY(-1px);
+            box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.4);
+        }
+
+        .results {
+            margin-top: 30px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        #searchResults {
+            display: none;
+        }
+
+        .loading,
+        .empty-state {
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 18px;
+            padding: 40px;
+            text-align: center;
+            box-shadow: 0 12px 28px rgba(15, 23, 42, 0.18);
+            border: 1px solid rgba(226, 232, 240, 0.6);
+            color: #1f2937;
+        }
+
+        .loading h3,
+        .empty-state h3 {
+            font-size: 1.4rem;
+            margin-bottom: 12px;
+        }
+
+        .loading p,
+        .empty-state p {
+            color: #4a5568;
+            font-size: 0.95rem;
+        }
+
+        .spinner {
+            width: 32px;
+            height: 32px;
+            border: 4px solid rgba(191, 219, 254, 0.6);
+            border-top: 4px solid #3182ce;
+            border-radius: 50%;
+            margin: 0 auto 16px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        .feature-card {
+            background: rgba(255, 255, 255, 0.92);
+            border-radius: 18px;
+            box-shadow: 0 14px 32px rgba(15, 23, 42, 0.18);
+            overflow: hidden;
+            border: 1px solid rgba(226, 232, 240, 0.6);
+        }
+
+        .feature-card + .feature-card {
+            margin-top: 12px;
+        }
+
+        .feature-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 24px;
+            cursor: pointer;
+            background: linear-gradient(135deg, rgba(248, 250, 252, 0.95), rgba(237, 242, 247, 0.9));
+        }
+
+        .feature-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: #1f2937;
+            font-size: 1.02rem;
+        }
+
+        .feature-actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .feature-header:hover {
+            box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.3);
+        }
+
+        .feature-details {
+            display: none;
+            padding: 0 24px 24px;
+            background: rgba(248, 250, 252, 0.9);
+        }
+
+        .feature-card.expanded .feature-details {
+            display: block;
+        }
+
+        .story-list,
+        .bug-list {
+            display: grid;
+            gap: 12px;
+        }
+
+        .branch-item {
+            background: rgba(255, 255, 255, 0.8);
+            padding: 16px;
+            border-radius: 12px;
+            box-shadow: 0 8px 18px rgba(148, 163, 184, 0.15);
+        }
+
+        .branch-item + .branch-item {
+            margin-top: 18px;
+        }
+
+        .section-expanded .section-toggle-icon {
+            transform: rotate(90deg);
         }
         
         .story-expand-btn {
@@ -254,6 +324,176 @@
             .feature-details { padding: 20px; }
             .stats-summary { grid-template-columns: 1fr; gap: 10px; }
         }
+
+        .chatbot-launcher {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            width: 64px;
+            height: 64px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #2563eb, #7c3aed);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 12px 32px rgba(37, 99, 235, 0.35);
+            cursor: pointer;
+            z-index: 1200;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .chatbot-launcher:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 16px 42px rgba(124, 58, 237, 0.35);
+        }
+
+        .chatbot-panel {
+            position: fixed;
+            bottom: 100px;
+            right: 24px;
+            width: 360px;
+            max-height: 520px;
+            background: rgba(15, 23, 42, 0.96);
+            border-radius: 20px;
+            box-shadow: 0 24px 60px rgba(15, 23, 42, 0.35);
+            display: none;
+            flex-direction: column;
+            z-index: 1200;
+            overflow: hidden;
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(148, 163, 184, 0.2);
+        }
+
+        .chatbot-panel.active {
+            display: flex;
+        }
+
+        .chatbot-header {
+            padding: 18px 20px;
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.9), rgba(76, 29, 149, 0.9));
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .chatbot-header h3 {
+            font-size: 1.05rem;
+            font-weight: 600;
+        }
+
+        .chatbot-toggle {
+            background: none;
+            border: none;
+            color: inherit;
+            font-size: 1.1rem;
+            cursor: pointer;
+        }
+
+        .chatbot-body {
+            flex: 1;
+            padding: 16px 20px 8px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .chatbot-message {
+            padding: 12px 16px;
+            border-radius: 14px;
+            font-size: 0.9rem;
+            line-height: 1.5;
+            max-width: 85%;
+            white-space: pre-line;
+        }
+
+        .chatbot-message.bot {
+            background: rgba(59, 130, 246, 0.15);
+            color: #e2e8f0;
+            align-self: flex-start;
+        }
+
+        .chatbot-message.user {
+            background: rgba(59, 130, 246, 0.9);
+            color: white;
+            align-self: flex-end;
+        }
+
+        .chatbot-quick-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 4px;
+        }
+
+        .chatbot-quick-actions button {
+            border: none;
+            border-radius: 20px;
+            padding: 6px 14px;
+            font-size: 0.78rem;
+            font-weight: 600;
+            background: rgba(148, 163, 184, 0.2);
+            color: #cbd5f5;
+            cursor: pointer;
+            transition: background 0.2s ease, transform 0.2s ease;
+        }
+
+        .chatbot-quick-actions button:hover {
+            background: rgba(59, 130, 246, 0.35);
+            transform: translateY(-1px);
+        }
+
+        .chatbot-footer {
+            padding: 12px 16px 16px;
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            background: rgba(15, 23, 42, 0.92);
+            border-top: 1px solid rgba(148, 163, 184, 0.2);
+        }
+
+        .chatbot-footer input {
+            flex: 1;
+            border-radius: 999px;
+            border: 1px solid rgba(148, 163, 184, 0.3);
+            padding: 10px 14px;
+            background: rgba(30, 41, 59, 0.9);
+            color: #f8fafc;
+        }
+
+        .chatbot-footer input::placeholder {
+            color: rgba(148, 163, 184, 0.6);
+        }
+
+        .chatbot-footer button {
+            border: none;
+            border-radius: 999px;
+            padding: 10px 16px;
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            color: white;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s ease;
+        }
+
+        .chatbot-footer button:hover {
+            transform: translateY(-1px);
+        }
+
+        @media (max-width: 600px) {
+            .chatbot-panel {
+                width: calc(100% - 32px);
+                right: 16px;
+                bottom: 90px;
+            }
+
+            .chatbot-launcher {
+                right: 16px;
+                bottom: 16px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -269,11 +509,11 @@
                     <input type="text" id="jqlInput" class="search-input" value="project = CTL-Fix AND fixVersion =&quot;CT PI26 Sep17-Jan06&quot; AND issuetype = &quot;Epic (Feature)&quot; AND &quot;Team[Team]&quot; = 5441" placeholder="Enter JQL query">
                     <div id="suggestionsDropdown" class="suggestions-dropdown"></div>
                 </div>
-                <button class="btn btn-primary" onclick="console.log('Search button clicked'); searchJira();"><i class="fas fa-search"></i> Search</button>
+                <button class="btn btn-primary" onclick="console.log('Search button clicked'); triggerManualSearch('button');"><i class="fas fa-search"></i> Search</button>
                 <button class="btn btn-secondary" onclick="clearResults()"><i class="fas fa-times"></i> Clear</button>
             </div>
         </div>
-        <div id="loadingState" class="loading">
+        <div id="loadingState" class="loading" style="display: none;">
             <div class="spinner"></div>
             <h3>Searching JIRA...</h3>
             <p>Please wait while we fetch your data</p>
@@ -282,6 +522,28 @@
         <div id="emptyState" class="empty-state">
             <h3><i class="fas fa-rocket"></i> Ready to Search</h3>
             <p>Enter a JQL query above to start exploring your JIRA epics and stories. The dashboard will automatically detect and highlight any blocking bugs.</p>
+        </div>
+    </div>
+
+    <div id="chatbotLauncher" class="chatbot-launcher" aria-label="Open strategy assistant" role="button">
+        <i class="fas fa-comments"></i>
+    </div>
+
+    <div id="chatbotPanel" class="chatbot-panel" aria-live="polite">
+        <div class="chatbot-header">
+            <div>
+                <h3>Delivery Strategist</h3>
+                <small style="display: block; opacity: 0.8; font-weight: 500;">Guidance for Jira delivery workflows</small>
+            </div>
+            <button class="chatbot-toggle" id="chatbotClose" aria-label="Close assistant">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="chatbot-body" id="chatbotMessages"></div>
+        <div class="chatbot-quick-actions" id="chatbotQuickActions" aria-label="Suggested prompts"></div>
+        <div class="chatbot-footer">
+            <input id="chatbotInput" type="text" placeholder="Ask about status, risks, or alerts" autocomplete="off" aria-label="Chat message" />
+            <button id="chatbotSend">Send</button>
         </div>
     </div>
 
@@ -301,6 +563,210 @@
         const loadingStateElement = document.getElementById('loadingState');
         const defaultLoadingHtml = loadingStateElement ? loadingStateElement.innerHTML : '';
         const epicNarrativeCache = new Map();
+
+        let chatbotInitialized = false;
+        let manualSearchArmed = false;
+
+        function initChatbot() {
+            if (chatbotInitialized) {
+                return;
+            }
+
+            const launcher = document.getElementById('chatbotLauncher');
+            const panel = document.getElementById('chatbotPanel');
+            const closeBtn = document.getElementById('chatbotClose');
+            const messages = document.getElementById('chatbotMessages');
+            const input = document.getElementById('chatbotInput');
+            const sendBtn = document.getElementById('chatbotSend');
+            const quickActions = document.getElementById('chatbotQuickActions');
+
+            if (!launcher || !panel || !messages || !input || !sendBtn || !quickActions) {
+                return;
+            }
+
+            chatbotInitialized = true;
+
+            const quickPrompts = [
+                { label: 'Epic health', prompt: 'Show me the current epic health summary.' },
+                { label: 'Defect triage', prompt: 'Which defects need attention right now?' },
+                { label: 'Release gate', prompt: 'Are we ready for release?' },
+                { label: 'Alert setup', prompt: 'How do I configure proactive notifications?' }
+            ];
+
+            let welcomeShown = false;
+
+            quickActions.innerHTML = '';
+            quickPrompts.forEach(item => {
+                const button = document.createElement('button');
+                button.textContent = item.label;
+                button.addEventListener('click', () => handleUserPrompt(item.prompt));
+                quickActions.appendChild(button);
+            });
+
+            launcher.addEventListener('click', () => toggleChatbot());
+            closeBtn.addEventListener('click', () => toggleChatbot(false));
+            sendBtn.addEventListener('click', () => {
+                handleUserPrompt(input.value);
+            });
+            input.addEventListener('keydown', event => {
+                if (event.key === 'Enter') {
+                    event.preventDefault();
+                    handleUserPrompt(input.value);
+                }
+            });
+
+            document.addEventListener('keydown', event => {
+                if (event.key === 'Escape' && panel.classList.contains('active')) {
+                    toggleChatbot(false);
+                }
+            });
+
+            function toggleChatbot(forceState) {
+                const shouldOpen = typeof forceState === 'boolean' ? forceState : !panel.classList.contains('active');
+                panel.classList.toggle('active', shouldOpen);
+                if (shouldOpen) {
+                    ensureWelcome();
+                    setTimeout(() => input.focus(), 150);
+                }
+            }
+
+            function ensureWelcome() {
+                if (welcomeShown) {
+                    return;
+                }
+                appendMessage('bot', 'Hi there! I am your Delivery Strategist assistant. Ask me about epic status, defect hygiene, release readiness, or notification workflows.');
+                appendMessage('bot', 'You can start with a quick prompt or type a question such as "Which stories are missing acceptance criteria?"');
+                welcomeShown = true;
+            }
+
+            function appendMessage(sender, text) {
+                if (!text) {
+                    return;
+                }
+                const bubble = document.createElement('div');
+                bubble.className = `chatbot-message ${sender}`;
+                bubble.textContent = text;
+                messages.appendChild(bubble);
+                messages.scrollTop = messages.scrollHeight;
+            }
+
+            function handleUserPrompt(rawValue) {
+                const value = (rawValue || '').trim();
+                if (!value) {
+                    return;
+                }
+
+                appendMessage('user', value);
+                input.value = '';
+
+                setTimeout(() => {
+                    const response = generateResponse(value.toLowerCase());
+                    appendMessage('bot', response);
+                }, 200);
+            }
+
+            function generateResponse(query) {
+                const snapshot = collectDashboardSnapshot();
+
+                if (/(status|health|progress|summary)/.test(query)) {
+                    if (snapshot.features === 0) {
+                        return 'Run a search first so I can analyse your features. Once epics load, I will summarise active stories and defects for you.';
+                    }
+                    return [
+                        `Here is the live delivery picture:`,
+                        `• Features tracked: ${snapshot.features}`,
+                        `• Stories in scope: ${snapshot.stories}`,
+                        `• Stories missing definition: ${snapshot.storiesMissingDefinition}`,
+                        `• Open defects: ${snapshot.bugs} (${snapshot.unlabeledBugs} missing labels)`,
+                        `Use the feature cards to drill into specific workstreams.`
+                    ].join('\n');
+                }
+
+                if (/(defect|bug|triage|label)/.test(query)) {
+                    if (snapshot.bugs === 0) {
+                        return 'No defects are currently loaded. When you pull epics with active bugs I will highlight the ones missing labels or owners.';
+                    }
+                    const flagged = snapshot.unlabeledBugs > 0
+                        ? `${snapshot.unlabeledBugs} defects need labels. Open the Bugs section inside each feature to correct them.`
+                        : 'All loaded defects carry labels. Nice hygiene!';
+                    return [
+                        `Defect queue overview:`,
+                        `• Total open defects: ${snapshot.bugs}`,
+                        `• Unassigned defects: ${snapshot.unassignedBugs}`,
+                        `• Missing labels: ${snapshot.unlabeledBugs}`,
+                        flagged,
+                        `Consider emailing owners via the feature action menu if updates stall.`
+                    ].join('\n');
+                }
+
+                if (/(release|readiness|go-no|go\s?no)/.test(query)) {
+                    if (snapshot.features === 0) {
+                        return 'Load the target PI or release train first so I can inspect stories and defects before giving a readiness call.';
+                    }
+                    return [
+                        `Release gate checklist:`,
+                        `• Stories missing definition: ${snapshot.storiesMissingDefinition}`,
+                        `• Defects without owners: ${snapshot.unassignedBugs}`,
+                        `• Defects missing labels: ${snapshot.unlabeledBugs}`,
+                        `Aim for zero across these metrics before announcing GO. Use email notifications from the feature card if follow-ups are required.`
+                    ].join('\n');
+                }
+
+                if (/(notify|alert|email|proactive)/.test(query)) {
+                    return [
+                        `Notification toolkit:`,
+                        `1. Use the 📧 Email Notification button on any feature to ping assignees and reporters when stories lack definition.`,
+                        `2. For recurring alerts, schedule a cron job that posts to /async/search and feeds the summary into Teams or email.`,
+                        `3. Add new rules here by extending the chatbot knowledge base so teams can subscribe to specific triggers (labels, priorities, or SLA breaches).`
+                    ].join('\n');
+                }
+
+                if (/(report|summary|export)/.test(query)) {
+                    return [
+                        `For quick reporting you can:`,
+                        `• Export the grid by copying rendered feature sections into PowerPoint via the presentation template.`,
+                        `• Call /async/search from CI and store JSON snapshots for burndown charts.`,
+                        `• Use the upcoming chat export option to capture conversational summaries after each triage.`
+                    ].join('\n');
+                }
+
+                return 'I can help with epic health, defect hygiene, release readiness, or notification workflows. Try asking for an epic health summary or how to triage defects.';
+            }
+
+            function collectDashboardSnapshot() {
+                const snapshot = {
+                    features: 0,
+                    stories: 0,
+                    storiesMissingDefinition: 0,
+                    bugs: 0,
+                    unlabeledBugs: 0,
+                    unassignedBugs: 0
+                };
+
+                const epicStories = window.currentEpicsWithStories || {};
+                const epicBugs = window.currentEpicBugs || {};
+                const epicKeys = Object.keys(epicStories);
+                snapshot.features = document.querySelectorAll('.feature-card[data-epic-key]').length || epicKeys.length;
+
+                epicKeys.forEach(key => {
+                    const stories = Array.isArray(epicStories[key]) ? epicStories[key] : [];
+                    snapshot.stories += stories.length;
+                    const missing = findStoriesWithMissingFields(stories);
+                    snapshot.storiesMissingDefinition += missing.length;
+                });
+
+                Object.keys(epicBugs).forEach(key => {
+                    const bugs = Array.isArray(epicBugs[key]) ? epicBugs[key] : [];
+                    snapshot.bugs += bugs.length;
+                    snapshot.unlabeledBugs += bugs.filter(bug => !Array.isArray(bug?.fields?.labels) || bug.fields.labels.length === 0).length;
+                    snapshot.unassignedBugs += bugs.filter(bug => !bug?.fields?.assignee).length;
+                });
+
+                return snapshot;
+            }
+        }
+
+        window.initChatbot = initChatbot;
 
         function resetLoadingState() {
             if (loadingStateElement) {
@@ -410,8 +876,17 @@
             return names.length ? names.join(', ') : 'No Fix Version';
         }
 
-        async function searchJira() {
-            console.log('searchJira function called');
+        async function searchJira(options = {}) {
+            const { force = false, source = 'manual' } = options;
+
+            if (!force && !manualSearchArmed) {
+                console.log('Search request suppressed until manually triggered.', { source, force });
+                return;
+            }
+
+            manualSearchArmed = false;
+
+            console.log('searchJira function called', { source, force });
             const jql = document.getElementById('jqlInput').value.trim();
             console.log('JQL input value:', jql);
             if (!jql) {
@@ -433,7 +908,7 @@
 
             try {
                 await sprintFieldReady;
-                const includeFields = new Set([SPRINT_FIELD_FALLBACK]);
+                const includeFields = new Set([SPRINT_FIELD_FALLBACK, 'labels']);
                 if (sprintFieldId) {
                     includeFields.add(sprintFieldId);
                 }
@@ -495,6 +970,11 @@
                     showLoading(false);
                 }
             }
+        }
+
+        function triggerManualSearch(source = 'manual') {
+            manualSearchArmed = true;
+            searchJira({ source });
         }
 
         function buildProxyUrl(pathOrUrl) {
@@ -833,7 +1313,7 @@
 
             try {
                 await sprintFieldReady;
-                const includeFields = new Set([SPRINT_FIELD_FALLBACK]);
+                const includeFields = new Set([SPRINT_FIELD_FALLBACK, 'labels']);
                 if (sprintFieldId) {
                     includeFields.add(sprintFieldId);
                 }
@@ -1138,6 +1618,8 @@
                 return;
             }
 
+            window.currentEpicsWithStories = window.currentEpicsWithStories || {};
+
             const epicStates = new Map();
             let processedCount = 0;
 
@@ -1307,7 +1789,7 @@
                     const searchUrl = new URL('http://localhost:3000/search');
                     searchUrl.searchParams.set('jql', jql);
 
-                    const includeFields = new Set([SPRINT_FIELD_FALLBACK]);
+                    const includeFields = new Set([SPRINT_FIELD_FALLBACK, 'labels']);
                     if (sprintFieldId) {
                         includeFields.add(sprintFieldId);
                     }
@@ -1405,7 +1887,7 @@
 
                 const searchUrl = new URL('http://localhost:3000/search');
                 searchUrl.searchParams.set('jql', jql);
-                const includeFields = new Set([SPRINT_FIELD_FALLBACK]);
+                const includeFields = new Set([SPRINT_FIELD_FALLBACK, 'labels']);
                 if (sprintFieldId) {
                     includeFields.add(sprintFieldId);
                 }
@@ -1458,7 +1940,10 @@
 
                     const formattedKeys = chunk.map(key => `"${key}"`).join(', ');
                     const jql = `"Epic Link" in (${formattedKeys}) AND issuetype = Bug`;
-                    const response = await fetch(`http://localhost:3000/search?jql=${encodeURIComponent(jql)}`, fetchOptions);
+                    const searchUrl = new URL('http://localhost:3000/search');
+                    searchUrl.searchParams.set('jql', jql);
+                    searchUrl.searchParams.set('includeFields', 'labels');
+                    const response = await fetch(searchUrl, fetchOptions);
                     if (!response.ok) {
                         throw new Error(`Bug batch fetch failed with status ${response.status}`);
                     }
@@ -1702,7 +2187,10 @@
             // Get bugs directly linked to epic (this is fast)
             try {
                 const epicBugsJql = `"Epic Link" = ${epicKey} AND issuetype = Bug`;
-                const epicBugsResponse = await fetch(`http://localhost:3000/search?jql=${encodeURIComponent(epicBugsJql)}`, fetchOptions);
+                const epicBugsUrl = new URL('http://localhost:3000/search');
+                epicBugsUrl.searchParams.set('jql', epicBugsJql);
+                epicBugsUrl.searchParams.set('includeFields', 'labels');
+                const epicBugsResponse = await fetch(epicBugsUrl, fetchOptions);
                 const epicBugsData = await epicBugsResponse.json();
                 if (epicBugsData.issues) {
                     allBugs = allBugs.concat(epicBugsData.issues);
@@ -1724,6 +2212,14 @@
 
         function createBugCard(bug) {
             const fixVersionLabel = getFixVersionLabel(bug.fields);
+            const labels = Array.isArray(bug?.fields?.labels) ? bug.fields.labels.filter(Boolean) : [];
+            const hasLabels = labels.length > 0;
+            const labelsContent = hasLabels
+                ? labels.map(label => `<span style="background: #faf089; color: #744210; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; margin-right: 6px;">${label}</span>`).join('')
+                : '<span style="font-weight: 600;">Missing</span>';
+            const labelsWrapperStyle = hasLabels
+                ? 'background: #fefcbf; border: 1px solid #f6ad55; color: #744210;'
+                : 'background: #fee2e2; border: 1px solid #f87171; color: #b91c1c;';
             return `
                 <div class="bug-card" style="background: #fef5e7; border: 1px solid #f6ad55; border-radius: 8px; padding: 12px; margin: 8px 0;">
                     <div class="bug-header" style="display: flex; align-items: center; margin-bottom: 8px;">
@@ -1748,6 +2244,15 @@
                         </div>
                         <div class="bug-assignee">
                             <i class="fas fa-user" style="margin-right: 4px;"></i>Assignee: ${bug.fields.assignee ? bug.fields.assignee.displayName : 'Unassigned'}
+                        </div>
+                    </div>
+                    <div class="bug-labels" style="margin-top: 10px; padding: 8px; border-radius: 6px; font-size: 12px; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; ${labelsWrapperStyle}">
+                        <span style="display: inline-flex; align-items: center; gap: 6px;">
+                            <i class="fas fa-tags"></i>
+                            <strong>Labels:</strong>
+                        </span>
+                        <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 6px;">
+                            ${labelsContent}
                         </div>
                     </div>
                 </div>
@@ -1909,7 +2414,7 @@
 
                             <!-- Stories -->
                             <div class="branch-item" style="margin-top: 15px;">
-                                <span onclick="toggleSection(this, 'stories')" style="cursor: pointer; display: inline-flex; align-items: center;">
+                                <span onclick="toggleSection(event, this, 'stories')" style="cursor: pointer; display: inline-flex; align-items: center;">
                                     <i class="fas fa-plus section-toggle-icon" style="color: #22c55e; margin-right: 8px; transition: transform 0.3s ease;"></i>
                                     <strong>Stories = <span id="stories-count-${epic.key}">${storyCountLabel}</span></strong>
                                 </span>
@@ -1920,7 +2425,7 @@
 
                             <!-- Bugs -->
                             <div class="branch-item" style="margin-top: 15px;">
-                                <span onclick="toggleSection(this, 'bugs')" style="cursor: pointer; display: inline-flex; align-items: center;">
+                                <span onclick="toggleSection(event, this, 'bugs')" style="cursor: pointer; display: inline-flex; align-items: center;">
                                     <i class="fas fa-plus section-toggle-icon" style="color: #22c55e; margin-right: 8px; transition: transform 0.3s ease;"></i>
                                     <strong>Bugs = <span id="bugs-count-${epic.key}">${bugCountLabel}</span></strong>
                                 </span>
@@ -1975,6 +2480,11 @@
             if (!state || hasSearchBeenCancelled()) {
                 return;
             }
+
+            if (!window.currentEpicBugs) {
+                window.currentEpicBugs = {};
+            }
+            window.currentEpicBugs[epicKey] = Array.isArray(state.bugs) ? [...state.bugs] : [];
 
             const bugCountElement = document.getElementById(`bugs-count-${epicKey}`);
             if (bugCountElement) {
@@ -2343,19 +2853,28 @@
         function toggleFeature(header) {
             const card = header.parentElement;
             const details = card.querySelector('.feature-details');
+            const icon = header.querySelector('.feature-toggle-icon');
             const isExpanded = card.classList.contains('expanded');
 
             if (isExpanded) {
                 details.style.display = 'none';
                 card.classList.remove('expanded');
+                if (icon) {
+                    icon.style.transform = 'rotate(0deg)';
+                }
             } else {
                 details.style.display = 'block';
                 card.classList.add('expanded');
+                if (icon) {
+                    icon.style.transform = 'rotate(90deg)';
+                }
             }
         }
 
-        function toggleSection(element, sectionType) {
-            event.stopPropagation(); // Prevent triggering parent toggleFeature
+        function toggleSection(evt, element, sectionType) {
+            if (evt && typeof evt.stopPropagation === 'function') {
+                evt.stopPropagation();
+            }
             
             const branchItem = element.parentElement;
             const section = branchItem.querySelector(`.${sectionType}-section`);
@@ -2398,7 +2917,7 @@
         }
 
         function showResults() {
-            document.getElementById('searchResults').style.display = 'block';
+            document.getElementById('searchResults').style.display = 'flex';
         }
 
         function hideResults() {
@@ -2492,13 +3011,6 @@
                 }, 300);
             }, 4000);
         }
-
-        // Allow Enter key to trigger search
-        document.getElementById('jqlInput').addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                searchJira();
-            }
-        });
 
         // Autocomplete functionality
         let fixVersions = [
@@ -2749,7 +3261,7 @@
                         if (selectHighlightedSuggestion()) {
                             e.preventDefault();
                         } else {
-                            searchJira();
+                            triggerManualSearch('enter');
                         }
                         break;
                     case 'Escape':
@@ -2757,7 +3269,7 @@
                         break;
                 }
             } else if (e.key === 'Enter') {
-                searchJira();
+                triggerManualSearch('enter');
             }
         });
 
@@ -4674,6 +5186,7 @@ Zuha Mujawar`
             console.log('Suggestions dropdown element:', document.getElementById('suggestionsDropdown'));
             showEmptyState();
             loadFixVersions();
+            initChatbot();
         });
         
         // Fallback for if DOMContentLoaded already fired
@@ -4686,6 +5199,7 @@ Zuha Mujawar`
             console.log('Suggestions dropdown element:', document.getElementById('suggestionsDropdown'));
             showEmptyState();
             loadFixVersions();
+            initChatbot();
         }
         
         // Add event delegation for story expand buttons

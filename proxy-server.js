@@ -321,6 +321,7 @@ const BASE_SEARCH_FIELDS = [
     'description',
     'customfield_10014',
     'issuelinks',
+    'labels',
     'fixVersions',
     'versions',
     'customfield_10004',
