@@ -2559,42 +2559,70 @@
         function showSuggestions(input, suggestions) {
             console.log('showSuggestions called with:', suggestions.length, 'suggestions');
             const dropdown = document.getElementById('suggestionsDropdown');
-            
+
             if (!dropdown) {
                 console.error('Dropdown element not found!');
                 return;
             }
-            
-            if (suggestions.length === 0) {
+
+            if (!Array.isArray(suggestions) || suggestions.length === 0) {
                 console.log('No suggestions to show');
-                dropdown.style.display = 'none';
+                hideSuggestions();
                 return;
             }
 
-            // Clear previous content
-                    detailsDiv.innerHTML = `
-                        <div style="margin-bottom: 15px;">
-                            <h4 style="margin: 0 0 8px 0; color: #1f2937; font-size: 14px;">
-                                <i class="fas fa-file-alt" style="color: #f59e0b; margin-right: 6px;"></i>
-                                Description
-                            </h4>
-                            <div style="background: white; padding: 10px; border-radius: 6px; font-size: 13px; line-height: 1.5; color: #4b5563; border: 1px solid #e5e7eb;">
-                                ${formattedDescription.content || '<em style="color: #9ca3af;">No description provided for this story.</em>'}
-                            </div>
-                        </div>
-                        
-                        <div>
-                            <h4 style="margin: 0 0 8px 0; color: #1f2937; font-size: 14px;">
-                                <i class="fas fa-check-circle" style="color: #22c55e; margin-right: 6px;"></i>
-                                High Level Acceptance Criteria
-                            </h4>
-                            <div style="background: white; padding: 10px; border-radius: 6px; font-size: 13px; line-height: 1.5; color: #4b5563; border: 1px solid #e5e7eb;">
-                                ${formattedAcceptanceCriteria.content || '<em style="color: #9ca3af;">No high level acceptance criteria defined for this story.</em>'}
-                            </div>
-                        </div>
-            setTimeout(() => {
-                document.getElementById('suggestionsDropdown').style.display = 'none';
-            }, 200);
+            dropdown.innerHTML = suggestions.map((suggestion) => {
+                const name = escapeHtml(suggestion.name || '');
+                const descriptionText = suggestion.description ? escapeHtml(suggestion.description) : '';
+                const description = descriptionText ? `<div class="suggestion-desc">${descriptionText}</div>` : '';
+                return `
+                    <div class="suggestion-item">
+                        <div class="suggestion-main">${name}</div>
+                        ${description}
+                    </div>
+                `;
+            }).join('');
+
+            dropdown.style.display = 'block';
+            currentHighlight = -1;
+
+            const items = dropdown.querySelectorAll('.suggestion-item');
+            items.forEach((item, index) => {
+                item.addEventListener('mousedown', event => {
+                    event.preventDefault();
+                });
+                item.addEventListener('mouseenter', () => {
+                    items.forEach(entry => entry.classList.remove('highlighted'));
+                    item.classList.add('highlighted');
+                    currentHighlight = index;
+                });
+                item.addEventListener('click', () => {
+                    const versionName = item.querySelector('.suggestion-main').textContent;
+                    selectSuggestion(versionName);
+                    hideSuggestions();
+                });
+            });
+
+            dropdown.style.width = `${input.offsetWidth}px`;
+        }
+
+        function hideSuggestions(event) {
+            const dropdown = document.getElementById('suggestionsDropdown');
+            if (!dropdown) {
+                return;
+            }
+
+            const performHide = () => {
+                dropdown.style.display = 'none';
+                dropdown.innerHTML = '';
+                currentHighlight = -1;
+            };
+
+            if (event && event.type === 'blur') {
+                setTimeout(performHide, 150);
+            } else {
+                performHide();
+            }
         }
 
         function selectSuggestion(versionName) {
@@ -2608,13 +2636,18 @@
             const fixVersionRegex = /(fixVersion\s*=\s*)"([^"]*)"/gi;
             
             if (fixVersionRegex.test(text)) {
-                // Reset regex for actual replacement
-                const newText = text.replace(/(fixVersion\s*=\s*)"([^"]*)"/gi, `$1"${versionName}"`);
+                // Reset regex for actual replacement without relying on $1 in template literal
+                const newText = text.replace(
+                    /(fixVersion\s*=\s*)"([^\"]*)"/gi,
+                    function(match, prefix) {
+                        return prefix + '"' + versionName + '"';
+                    }
+                );
                 console.log('New text:', newText);
                 input.value = newText;
             } else {
                 // If no fixVersion found, append to the end
-                const newText = text + ` AND fixVersion = "${versionName}"`;
+                const newText = text + ' AND fixVersion = "' + versionName + '"';
                 console.log('Appending new text:', newText);
                 input.value = newText;
             }
