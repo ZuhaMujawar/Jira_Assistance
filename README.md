@@ -21,7 +21,7 @@ A comprehensive JIRA dashboard for tracking epics, stories, and bugs with advanc
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/zuha12/Feature-Lifecycle-Navigator-FLN-.git
+git clone https://github.com/ZuhaMujawar/Jira_Assistance.git
 cd Feature-Lifecycle-Navigator-FLN-
 ```
 
@@ -31,18 +31,18 @@ npm install
 ```
 
 3. Configure JIRA credentials:
-   - Update the proxy server configuration in `proxy-server.js`
-   - Set your JIRA base URL in `dashboard.html`
+    - Update the proxy server configuration in `server/proxy-server.js`
+    - Set your JIRA base URL in `public/dashboard.html`
 
 ## 🚀 Usage
 
 1. Start the proxy server:
 ```bash
-node proxy-server.js
+npm start
 ```
 or use the batch file:
 ```bash
-start-proxy.bat
+scripts/start-proxy.bat
 ```
 
 2. Open your browser and navigate to:
@@ -55,19 +55,28 @@ http://localhost:3000/dashboard.html
 ## 📁 Project Structure
 
 ```
-├── dashboard.html          # Main dashboard interface
-├── proxy-server.js         # CORS proxy server for JIRA API
-├── Demo.html              # Demo version of the dashboard
-├── package.json           # Node.js dependencies
-├── start-proxy.bat        # Windows batch file to start proxy
-├── test-jira.html         # JIRA connection testing interface
-├── capability-*.html      # Capability discovery tools
-├── field-discovery.html   # JIRA field discovery tool
-├── Presentation.html      # Project presentation
-└── docs/                  # Documentation files
-    ├── JIRA_INTEGRATION_GUIDE.md
-    ├── PowerPoint_Creation_Guide.md
-    └── Project_Presentation.md
+├── public/                        # Static web assets
+│   ├── dashboard.html             # Main dashboard interface
+│   ├── Demo.html                  # Login/demo page
+│   ├── test-jira.html             # JIRA connectivity test page
+│   ├── Presentation.html          # Presentation page
+│   ├── capability-discovery.html
+│   ├── capability-fetching-guide.html
+│   ├── documentation-generator-guide.html
+│   └── field-discovery.html
+├── server/
+│   ├── proxy-server.js            # Express proxy server for JIRA API
+│   └── send-emails.js             # Email helper script
+├── scripts/
+│   └── start-proxy.bat            # Windows launcher
+├── docs/                          # Project documentation
+│   ├── ENV_SETUP.md
+│   ├── JIRA_INTEGRATION_GUIDE.md
+│   ├── PowerPoint_Creation_Guide.md
+│   ├── PowerPoint_Script.md
+│   └── Project_Presentation.md
+├── package.json
+└── package-lock.json
 ```
 
 ## ✨ Key Features
@@ -90,7 +99,7 @@ http://localhost:3000/dashboard.html
 ## 🔧 Configuration
 
 ### JIRA Base URL
-Update the JIRA base URL in `dashboard.html`:
+Update the JIRA base URL in `public/dashboard.html`:
 ```javascript
 const jiraBaseUrl = 'https://your-instance.atlassian.net';
 ```
@@ -101,7 +110,7 @@ The system uses mailto links for email functionality. Emails are sent to:
 - **Reporters**: For unassigned issues
 
 ### Proxy Server
-Configure JIRA credentials in `proxy-server.js`:
+Configure JIRA credentials in `server/proxy-server.js`:
 ```javascript
 // Update with your JIRA instance details
 const jiraBaseUrl = 'https://your-instance.atlassian.net';

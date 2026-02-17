@@ -5,6 +5,8 @@ const axios = require('axios');
 const path = require('path');
 const { randomUUID } = require('crypto');
 const app = express();
+const ROOT_DIR = path.resolve(__dirname, '..');
+const PUBLIC_DIR = path.join(ROOT_DIR, 'public');
 
 app.use(cors());
 app.use(express.json());
@@ -14,11 +16,11 @@ app.use((req, res, next) => {
     res.header('Expires', '0');
     next();
 });
-app.use(express.static(__dirname));
+app.use(express.static(PUBLIC_DIR));
 
 // Serve Demo.html at /demo route
 app.get('/demo', (req, res) => {
-    res.sendFile(path.join(__dirname, 'Demo.html'));
+    res.sendFile(path.join(PUBLIC_DIR, 'Demo.html'));
 });
 
 const JIRA_CONFIG = {

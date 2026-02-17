@@ -1,4 +1,6 @@
 @echo off
+pushd "%~dp0.."
+
 echo Installing Node.js dependencies...
 npm install
 
@@ -10,6 +12,7 @@ echo Keep this window open while using the dashboard
 echo Press Ctrl+C to stop the server
 echo.
 
-node proxy-server.js
+node server\proxy-server.js
 
 pause
+popd
