@@ -27,6 +27,212 @@ const JIRA_CONFIG = {
     apiToken: process.env.JIRA_API_TOKEN || 'YOUR_JIRA_API_TOKEN_HERE'
 };
 
+const DEFAULT_TESTCASE_ISSUE_TYPE = process.env.JIRA_TESTCASE_ISSUE_TYPE || 'Test';
+const DEFAULT_TESTCASE_LINK_TYPE = process.env.JIRA_TESTCASE_LINK_TYPE || 'Relates';
+
+function getJiraAuthHeaders(extra = {}) {
+    return {
+        'Authorization': `Basic ${Buffer.from(JIRA_CONFIG.username + ':' + JIRA_CONFIG.apiToken).toString('base64')}`,
+        'Accept': 'application/json',
+        ...extra
+    };
+}
+
+function decodeHtmlEntities(text) {
+    if (!text || typeof text !== 'string') {
+        return '';
+    }
+    return text
+        .replace(/&amp;/gi, '&')
+        .replace(/&lt;/gi, '<')
+        .replace(/&gt;/gi, '>')
+        .replace(/&quot;/gi, '"')
+        .replace(/&#39;/gi, "'")
+        .replace(/&nbsp;/gi, ' ');
+}
+
+function stripHtmlTags(value) {
+    if (typeof value !== 'string') {
+        return '';
+    }
+    return decodeHtmlEntities(
+        value
+            .replace(/<\s*br\s*\/?\s*>/gi, '\n')
+            .replace(/<\/(p|div|h[1-6])>/gi, '\n')
+            .replace(/<li[^>]*>/gi, '\n- ')
+            .replace(/<[^>]+>/g, '')
+    )
+        .replace(/\u00a0/g, ' ')
+        .replace(/\r\n/g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+}
+
+function flattenAdfToText(node, indent = '') {
+    if (!node) {
+        return '';
+    }
+    if (Array.isArray(node)) {
+        return node.map(child => flattenAdfToText(child, indent)).join('');
+    }
+    if (node.type === 'text') {
+        return node.text || '';
+    }
+    if (node.type === 'hardBreak') {
+        return '\n';
+    }
+    if (node.type === 'paragraph') {
+        return flattenAdfToText(node.content, indent) + '\n';
+    }
+    if (node.type === 'bulletList') {
+        return node.content
+            .map(item => indent + '- ' + flattenAdfToText(item, indent + '  ').trim() + '\n')
+            .join('');
+    }
+    if (node.type === 'orderedList') {
+        return node.content
+            .map((item, index) => indent + (index + 1) + '. ' + flattenAdfToText(item, indent + '  ').trim() + '\n')
+            .join('');
+    }
+    if (node.type === 'listItem') {
+        return flattenAdfToText(node.content, indent);
+    }
+    if (node.content) {
+        return flattenAdfToText(node.content, indent);
+    }
+    return '';
+}
+
+function normalizeRichTextField(field) {
+    if (!field) {
+        return '';
+    }
+    if (typeof field === 'string') {
+        return stripHtmlTags(field);
+    }
+    if (field.type === 'doc' && Array.isArray(field.content)) {
+        return stripHtmlTags(flattenAdfToText(field.content));
+    }
+    if (Array.isArray(field)) {
+        return stripHtmlTags(field.map(entry => (typeof entry === 'string' ? entry : JSON.stringify(entry))).join('\n'));
+    }
+    if (typeof field === 'object') {
+        return stripHtmlTags(JSON.stringify(field));
+    }
+    return stripHtmlTags(String(field));
+}
+
+function extractListItems(text) {
+    if (!text || typeof text !== 'string') {
+        return [];
+    }
+    return text
+        .split(/\r?\n|(?<=\.)\s+(?=[A-Z])/)
+        .map(line => line.replace(/^\s*[-*•]\s*/, '').replace(/^\s*\d+\.\s*/, '').trim())
+        .filter(Boolean);
+}
+
+function dedupeList(items) {
+    const seen = new Set();
+    const result = [];
+    items.forEach(item => {
+        const key = item.toLowerCase();
+        if (!seen.has(key)) {
+            seen.add(key);
+            result.push(item);
+        }
+    });
+    return result;
+}
+
+function buildTestCasePlan(story, acceptanceText, descriptionText) {
+    const summary = story?.fields?.summary ? story.fields.summary.trim() : story.key;
+    const acceptanceItems = dedupeList(extractListItems(acceptanceText));
+    const descriptionItems = dedupeList(extractListItems(descriptionText));
+    const stepsSource = acceptanceItems.length ? acceptanceItems : descriptionItems;
+    const steps = stepsSource.length
+        ? stepsSource
+        : [`Execute the end-to-end validation aligned with story ${story.key}.`];
+    const expected = acceptanceItems.length
+        ? acceptanceItems
+        : [`Outcome aligns with the acceptance criteria for ${story.key}.`];
+
+    const descriptionLines = [
+        `Story: ${story.key} – ${summary}`,
+        '',
+        'Test Objectives:',
+        `- Validate that the solution satisfies the acceptance criteria of ${story.key}.`,
+        '',
+        'Test Steps:',
+        ...steps.map((step, index) => `${index + 1}. ${step}`),
+        '',
+        'Expected Results:',
+        ...expected.map(item => `- ${item}`)
+    ];
+
+    if (acceptanceText && acceptanceText.trim().length > 0) {
+        descriptionLines.push('');
+        descriptionLines.push('Acceptance Criteria Reference:');
+        acceptanceText
+            .split(/\r?\n/)
+            .map(line => line.trim())
+            .filter(Boolean)
+            .forEach(line => descriptionLines.push(`- ${line.replace(/^[-*•]\s*/, '')}`));
+    }
+
+    descriptionLines.push('');
+    descriptionLines.push('Notes:');
+    descriptionLines.push('- Generated automatically by Feature Lifecycle Navigator. Adjust the steps as needed.');
+
+    return {
+        description: descriptionLines.join('\n').replace(/\n{3,}/g, '\n\n').trim(),
+        steps,
+        expected
+    };
+}
+
+async function resolveTestCaseIssueType(projectKey, preferredName) {
+    const fallbackName = preferredName || DEFAULT_TESTCASE_ISSUE_TYPE || 'Test';
+    try {
+        const response = await axios.get(
+            `${JIRA_CONFIG.baseUrl}rest/api/3/issue/createmeta`,
+            {
+                headers: getJiraAuthHeaders(),
+                params: {
+                    projectKeys: projectKey,
+                    expand: 'projects.issuetypes.fields'
+                }
+            }
+        );
+
+        const projects = Array.isArray(response?.data?.projects) ? response.data.projects : [];
+        if (!projects.length) {
+            return { name: fallbackName };
+        }
+
+        const project = projects.find(p => p.key === projectKey) || projects[0];
+        const issueTypes = Array.isArray(project?.issuetypes) ? project.issuetypes : [];
+        if (!issueTypes.length) {
+            return { name: fallbackName };
+        }
+
+        const preferred = issueTypes.find(type => type.name.toLowerCase() === fallbackName.toLowerCase());
+        if (preferred) {
+            return { id: preferred.id, name: preferred.name };
+        }
+
+        const testLike = issueTypes.find(type => /test/.test(type.name.toLowerCase()));
+        if (testLike) {
+            return { id: testLike.id, name: testLike.name };
+        }
+
+        return { name: fallbackName };
+    } catch (error) {
+        console.warn('Unable to resolve test case issue types, falling back to configured name.', error.response?.data || error.message);
+        return { name: fallbackName };
+    }
+}
+
 const CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
 const JOB_TTL_MS = 30 * 60 * 1000;   // 30 minutes retention for job inspection
 const MAX_CONCURRENT_JOBS = 2;
@@ -36,6 +242,27 @@ const asyncJobs = new Map();
 const cacheStore = new Map();
 const pendingQueue = [];
 let activeJobCount = 0;
+
+const apiSearchCache = new Map();
+
+function getApiSearchCache(cacheKey) {
+    const entry = apiSearchCache.get(cacheKey);
+    if (!entry) {
+        return null;
+    }
+    if (Date.now() > entry.expiresAt) {
+        apiSearchCache.delete(cacheKey);
+        return null;
+    }
+    return entry.data;
+}
+
+function setApiSearchCache(cacheKey, data, ttlMs = CACHE_TTL_MS) {
+    apiSearchCache.set(cacheKey, {
+        data,
+        expiresAt: Date.now() + ttlMs
+    });
+}
 
 function convertPlainTextToADF(input) {
     const normalized = typeof input === 'string' ? input.replace(/\r\n/g, '\n') : '';
@@ -104,28 +331,34 @@ function deriveResultMeta(job, payload) {
         : (Number.isFinite(job?.request?.startAt) ? job.request.startAt : 0);
     const total = Number.isFinite(payload?.total)
         ? payload.total
-        : Math.max(issuesCount + startAt, issuesCount);
+        : (Number.isFinite(job?.request?.total) ? job.request.total : undefined);
     const maxResults = Number.isFinite(payload?.maxResults)
         ? payload.maxResults
         : (job?.request?.maxResults || issuesCount);
     const nextPageToken = typeof payload?.nextPageToken === 'string' && payload.nextPageToken.length > 0
         ? payload.nextPageToken
         : null;
-    const nextStartAt = startAt + issuesCount;
-    const explicitHasMore = typeof payload?.isLast === 'boolean'
-        ? !payload.isLast
+    const nextStartAt = Number.isFinite(startAt) ? startAt + issuesCount : issuesCount;
+    const isLast = typeof payload?.isLast === 'boolean'
+        ? payload.isLast
         : undefined;
-    const hasMore = typeof explicitHasMore === 'boolean'
-        ? explicitHasMore
-        : (nextPageToken ? true : nextStartAt < total);
+    const hasMore = typeof payload?.hasMore === 'boolean'
+        ? payload.hasMore
+        : (typeof isLast === 'boolean'
+            ? !isLast
+            : Boolean(nextPageToken));
+    const computedTotal = Number.isFinite(total)
+        ? total
+        : nextStartAt;
 
     return {
-        total,
+        total: computedTotal,
         startAt,
         maxResults,
         pageSize: issuesCount,
         nextStartAt,
         nextPageToken,
+        isLast,
         hasMore
     };
 }
@@ -147,44 +380,72 @@ async function performJiraSearch(jql, fields, maxResults, startAt = 0, nextPageT
     const normalizedFields = Array.isArray(fields) ? fields.filter(Boolean) : [];
     const searchPayload = {
         jql,
-        maxResults,
-        fields: normalizedFields,
-        fieldsByKeys: false
+        maxResults
     };
 
-    if (!nextPageToken && Number.isFinite(startAt) && startAt > 0) {
-        searchPayload.startAt = startAt;
+    if (normalizedFields.length > 0) {
+        searchPayload.fields = normalizedFields;
     }
 
     if (typeof nextPageToken === 'string' && nextPageToken.length > 0) {
         searchPayload.nextPageToken = nextPageToken;
     }
 
-    const response = await axios.post(
-        `${JIRA_CONFIG.baseUrl}rest/api/3/search/jql`,
-        searchPayload,
-        {
-            headers: {
-                'Authorization': `Basic ${Buffer.from(JIRA_CONFIG.username + ':' + JIRA_CONFIG.apiToken).toString('base64')}`,
-                'Accept': 'application/json',
-                'Content-Type': 'application/json',
-                'X-ExperimentalApi': 'opt-in'
-            }
+    const requestConfig = {
+        headers: {
+            'Authorization': `Basic ${Buffer.from(JIRA_CONFIG.username + ':' + JIRA_CONFIG.apiToken).toString('base64')}`,
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+            'X-ExperimentalApi': 'opt-in'
         }
-    );
+    };
+
+    let response;
+    try {
+        response = await axios.post(
+            `${JIRA_CONFIG.baseUrl}rest/api/3/search/jql`,
+            searchPayload,
+            requestConfig
+        );
+    } catch (error) {
+        const message = JSON.stringify(error.response?.data || {});
+        const canRetryWithoutFields = error.response?.status === 400 && normalizedFields.length > 0 && /Invalid request payload/i.test(message);
+        if (!canRetryWithoutFields) {
+            throw error;
+        }
+        const fallbackPayload = {
+            jql,
+            maxResults
+        };
+        if (typeof nextPageToken === 'string' && nextPageToken.length > 0) {
+            fallbackPayload.nextPageToken = nextPageToken;
+        }
+        response = await axios.post(
+            `${JIRA_CONFIG.baseUrl}rest/api/3/search/jql`,
+            fallbackPayload,
+            requestConfig
+        );
+    }
 
     const jiraPayload = response.data || {};
     const issues = Array.isArray(jiraPayload.issues) ? jiraPayload.issues : [];
 
+    const fallbackStart = Number.isFinite(startAt) ? startAt : 0;
+    const responseStart = Number.isFinite(jiraPayload.startAt) ? jiraPayload.startAt : fallbackStart;
+    const responseTotal = Number.isFinite(jiraPayload.total)
+        ? jiraPayload.total
+        : issues.length + responseStart;
+
     return {
         issues,
-        startAt: Number.isFinite(jiraPayload.startAt) ? jiraPayload.startAt : startAt,
+        startAt: responseStart,
         maxResults: Number.isFinite(jiraPayload.maxResults) ? jiraPayload.maxResults : maxResults,
-        total: Number.isFinite(jiraPayload.total)
-            ? jiraPayload.total
-            : issues.length + (Number.isFinite(startAt) ? startAt : 0),
+        total: responseTotal,
         nextPageToken: typeof jiraPayload.nextPageToken === 'string' ? jiraPayload.nextPageToken : null,
         isLast: typeof jiraPayload.isLast === 'boolean' ? jiraPayload.isLast : undefined,
+        hasMore: typeof jiraPayload.isLast === 'boolean'
+            ? !jiraPayload.isLast
+            : (typeof jiraPayload.nextPageToken === 'string' && jiraPayload.nextPageToken.length > 0),
         names: jiraPayload.names || {},
         schema: jiraPayload.schema || {},
         warnings: Array.isArray(jiraPayload.warningMessages) ? jiraPayload.warningMessages : []
@@ -309,6 +570,11 @@ setInterval(() => {
             cacheStore.delete(cacheKey);
         }
     }
+    for (const [cacheKey, entry] of apiSearchCache.entries()) {
+        if (now > entry.expiresAt) {
+            apiSearchCache.delete(cacheKey);
+        }
+    }
 }, 60 * 1000);
 
 const BASE_SEARCH_FIELDS = [
@@ -362,7 +628,7 @@ app.post('/async/search', (req, res) => {
             return res.status(400).json({ error: 'jql is required for async search' });
         }
 
-        const includeFields = req.body?.includeFields;
+        const fieldsParam = req.body?.fields ?? req.body?.includeFields;
         const requestedMaxResults = Number.parseInt(req.body?.maxResults, 10);
         const maxResults = Number.isFinite(requestedMaxResults) && requestedMaxResults > 0
             ? Math.min(requestedMaxResults, 250)
@@ -377,13 +643,13 @@ app.post('/async/search', (req, res) => {
 
         const fieldsToRequest = new Set(BASE_SEARCH_FIELDS);
 
-        if (Array.isArray(includeFields)) {
-            includeFields
+        if (Array.isArray(fieldsParam)) {
+            fieldsParam
                 .map(field => field && field.trim())
                 .filter(Boolean)
                 .forEach(field => fieldsToRequest.add(field));
-        } else if (typeof includeFields === 'string') {
-            includeFields
+        } else if (typeof fieldsParam === 'string') {
+            fieldsParam
                 .split(',')
                 .map(field => field && field.trim())
                 .filter(Boolean)
@@ -551,7 +817,7 @@ app.get('/search', async (req, res) => {
         }
         
         console.log('Received JQL search request:', jql);
-        const includeFieldsParam = req.query.includeFields;
+        const includeFieldsParam = req.query.fields ?? req.query.includeFields;
         const fieldsToRequest = [...BASE_SEARCH_FIELDS];
 
         const requestedMaxResults = Number.parseInt(req.query.maxResults, 10);
@@ -693,6 +959,166 @@ app.put('/issue/:key', async (req, res) => {
     }
 });
 
+app.post('/api/jira/testcases', async (req, res) => {
+    const storyKeyInput = req.body?.storyKey;
+    if (!storyKeyInput || typeof storyKeyInput !== 'string') {
+        return res.status(400).json({ error: 'storyKey is required to generate test cases.' });
+    }
+
+    const storyKey = storyKeyInput.trim().toUpperCase();
+    const assigneeStrategy = req.body?.assigneeStrategy || 'storyAssignee';
+    const overrideAssignee = typeof req.body?.assigneeAccountId === 'string'
+        ? req.body.assigneeAccountId.trim()
+        : '';
+    const issueTypeName = (req.body?.issueTypeName || DEFAULT_TESTCASE_ISSUE_TYPE || 'Test').trim();
+    let resolvedIssueType = { name: issueTypeName };
+
+    try {
+        const storyResponse = await axios.get(
+            `${JIRA_CONFIG.baseUrl}rest/api/3/issue/${encodeURIComponent(storyKey)}?expand=renderedFields`,
+            {
+                headers: getJiraAuthHeaders()
+            }
+        );
+
+        const story = storyResponse.data;
+        if (!story || !story.fields || !story.fields.project || !story.fields.project.key) {
+            return res.status(400).json({ error: `Unable to resolve project information for ${storyKey}.` });
+        }
+
+        const acceptanceText = normalizeRichTextField(
+            story.renderedFields?.customfield_10056 || story.fields?.customfield_10056
+        );
+        const descriptionText = normalizeRichTextField(
+            story.renderedFields?.description || story.fields?.description
+        );
+
+        const testPlan = buildTestCasePlan(story, acceptanceText, descriptionText);
+        const testCaseSummary = `Test cases for ${storyKey} – ${story.fields.summary || 'Story validation'}`;
+        const projectKey = story.fields.project.key;
+
+        resolvedIssueType = await resolveTestCaseIssueType(projectKey, issueTypeName);
+
+        const createPayload = {
+            fields: {
+                project: { key: projectKey },
+                summary: testCaseSummary,
+                description: convertPlainTextToADF(testPlan.description),
+                labels: Array.isArray(story.fields.labels)
+                    ? Array.from(new Set([...story.fields.labels, 'auto-generated-testcase']))
+                    : ['auto-generated-testcase']
+            }
+        };
+
+        createPayload.fields.issuetype = {};
+        if (resolvedIssueType.id) {
+            createPayload.fields.issuetype.id = resolvedIssueType.id;
+        }
+        createPayload.fields.issuetype.name = resolvedIssueType.name || issueTypeName;
+
+        if (assigneeStrategy === 'storyAssignee' && story.fields.assignee?.accountId) {
+            createPayload.fields.assignee = { accountId: story.fields.assignee.accountId };
+        } else if (overrideAssignee) {
+            createPayload.fields.assignee = { accountId: overrideAssignee };
+        }
+
+        let createdIssueKey = null;
+        let createError = null;
+
+        try {
+            const createResponse = await axios.post(
+                `${JIRA_CONFIG.baseUrl}rest/api/3/issue`,
+                createPayload,
+                {
+                    headers: getJiraAuthHeaders({ 'Content-Type': 'application/json' })
+                }
+            );
+            createdIssueKey = createResponse?.data?.key || null;
+        } catch (error) {
+            createError = error;
+        }
+
+        if (!createdIssueKey) {
+            const errorPayload = createError?.response?.data;
+            const errorMessages = Array.isArray(errorPayload?.errorMessages)
+                ? errorPayload.errorMessages.join(' ')
+                : typeof errorPayload?.message === 'string'
+                    ? errorPayload.message
+                    : createError?.message || 'Unknown Jira error while creating the test case.';
+            const status = createError?.response?.status || 500;
+
+            let hint = '';
+            if (status === 400 && (errorPayload?.errors?.issuetype || /issue type/i.test(errorMessages))) {
+                hint = `Jira rejected the issue type "${resolvedIssueType.name}". Set JIRA_TESTCASE_ISSUE_TYPE to a valid type or update the chatbot configuration.`;
+            }
+
+            return res.status(status).json({
+                error: errorMessages,
+                details: errorPayload?.errors || null,
+                issueTypeUsed: resolvedIssueType,
+                hint: hint || undefined
+            });
+        }
+
+        let linkCreated = false;
+        try {
+            await axios.post(
+                `${JIRA_CONFIG.baseUrl}rest/api/3/issueLink`,
+                {
+                    type: { name: DEFAULT_TESTCASE_LINK_TYPE },
+                    inwardIssue: { key: createdIssueKey },
+                    outwardIssue: { key: storyKey }
+                },
+                {
+                    headers: getJiraAuthHeaders({ 'Content-Type': 'application/json' })
+                }
+            );
+            linkCreated = true;
+        } catch (linkError) {
+            console.warn('Failed to create Jira issue link:', linkError.response?.data || linkError.message);
+        }
+
+        const browseBase = JIRA_CONFIG.baseUrl.replace(/\/?$/, '');
+
+        return res.json({
+            success: true,
+            testCaseKey: createdIssueKey,
+            testCaseUrl: `${browseBase}/browse/${createdIssueKey}`,
+            linked: linkCreated,
+            storyKey,
+            summary: testCaseSummary,
+            steps: testPlan.steps,
+            expectedResults: testPlan.expected,
+            issueTypeUsed: resolvedIssueType
+        });
+    } catch (error) {
+        console.error('Test case generation failed:', error.response?.data || error.message);
+        const status = error?.response?.status || 500;
+
+        if (status === 404) {
+            return res.status(404).json({ error: `Story ${storyKey} was not found in Jira.`, issueTypeUsed: resolvedIssueType });
+        }
+
+        if (status === 401 || status === 403) {
+            return res.status(status).json({
+                error: 'Jira rejected the request. Verify credentials and permissions for creating issues.',
+                issueTypeUsed: resolvedIssueType
+            });
+        }
+
+        const jiraDetails = error?.response?.data;
+        const message = Array.isArray(jiraDetails?.errorMessages) && jiraDetails.errorMessages.length
+            ? jiraDetails.errorMessages.join(' ')
+            : jiraDetails?.message || error.message || 'Unknown Jira error.';
+
+        return res.status(status).json({
+            error: message,
+            details: jiraDetails?.errors || null,
+            issueTypeUsed: resolvedIssueType
+        });
+    }
+});
+
 app.get('/agile/issue/:key', async (req, res) => {
     try {
         const issueKey = req.params.key;
@@ -729,25 +1155,132 @@ app.get('/agile/issue/:key', async (req, res) => {
 
 app.post('/api/jira/search', async (req, res) => {
     try {
-        console.log('Received search request:', req.body);
-        
-        const response = await axios.post(
-            `${JIRA_CONFIG.baseUrl}rest/api/3/search`,
-            req.body,
-            {
-                headers: {
-                    'Authorization': `Basic ${Buffer.from(JIRA_CONFIG.username + ':' + JIRA_CONFIG.apiToken).toString('base64')}`,
-                    'Accept': 'application/json',
-                    'Content-Type': 'application/json'
-                }
+        const rawPayload = req.body && typeof req.body === 'object' ? req.body : {};
+        const jql = typeof rawPayload.jql === 'string' ? rawPayload.jql.trim() : '';
+
+        if (!jql) {
+            return res.status(400).json({ error: 'jql is required' });
+        }
+
+        const requestedMaxResults = Number.parseInt(rawPayload.maxResults, 10);
+        const maxResults = Number.isFinite(requestedMaxResults)
+            ? Math.min(Math.max(requestedMaxResults, 1), 100)
+            : 50;
+
+        const requestedStartAt = Number.parseInt(rawPayload.startAt, 10);
+        const startAt = Number.isFinite(requestedStartAt) && requestedStartAt >= 0 ? requestedStartAt : 0;
+
+        const nextPageToken = typeof rawPayload.nextPageToken === 'string' && rawPayload.nextPageToken.trim().length > 0
+            ? rawPayload.nextPageToken.trim()
+            : null;
+
+        const rawFields = rawPayload.fields ?? rawPayload.includeFields ?? [];
+        const fieldsArray = Array.isArray(rawFields)
+            ? rawFields
+            : typeof rawFields === 'string'
+                ? rawFields.split(',')
+                : [];
+        const normalizedFields = Array.from(new Set(
+            fieldsArray
+                .map(field => (field && field.toString ? field.toString().trim() : ''))
+                .filter(Boolean)
+        ));
+
+        if (normalizedFields.length === 0) {
+            normalizedFields.push('summary', 'status', 'assignee');
+        }
+
+        const cacheKey = computeCacheKey(jql, normalizedFields, maxResults, startAt, nextPageToken);
+        const cached = getApiSearchCache(cacheKey);
+        if (cached) {
+            return res.json({ ...cached, cacheHit: true });
+        }
+
+        const payload = {
+            jql,
+            maxResults,
+            fields: normalizedFields
+        };
+
+        if (nextPageToken) {
+            payload.nextPageToken = nextPageToken;
+        }
+
+        const requestConfig = {
+            headers: {
+                'Authorization': `Basic ${Buffer.from(JIRA_CONFIG.username + ':' + JIRA_CONFIG.apiToken).toString('base64')}`,
+                'Accept': 'application/json',
+                'Content-Type': 'application/json',
+                'X-ExperimentalApi': 'opt-in'
             }
-        );
-        
-        console.log('JIRA API Response received, issues count:', response.data.issues?.length || 0);
-        res.json(response.data);
+        };
+
+        let response;
+        try {
+            response = await axios.post(
+                `${JIRA_CONFIG.baseUrl}rest/api/3/search/jql`,
+                payload,
+                requestConfig
+            );
+        } catch (error) {
+            const message = JSON.stringify(error.response?.data || {});
+            const canRetryWithoutFields = error.response?.status === 400 && normalizedFields.length > 0 && /Invalid request payload/i.test(message);
+            if (!canRetryWithoutFields) {
+                throw error;
+            }
+            const fallbackPayload = {
+                jql,
+                maxResults
+            };
+            if (nextPageToken) {
+                fallbackPayload.nextPageToken = nextPageToken;
+            }
+            response = await axios.post(
+                `${JIRA_CONFIG.baseUrl}rest/api/3/search/jql`,
+                fallbackPayload,
+                requestConfig
+            );
+        }
+
+        const data = response.data || {};
+        const issues = Array.isArray(data.issues) ? data.issues : [];
+
+        const trimmedIssues = issues.map(issue => {
+            const trimmedFields = {};
+            if (issue.fields && typeof issue.fields === 'object') {
+                normalizedFields.forEach(fieldName => {
+                    if (Object.prototype.hasOwnProperty.call(issue.fields, fieldName)) {
+                        trimmedFields[fieldName] = issue.fields[fieldName];
+                    }
+                });
+            }
+            return {
+                id: issue.id,
+                key: issue.key,
+                self: issue.self,
+                fields: trimmedFields
+            };
+        });
+
+        const trimmedResponse = {
+            issues: trimmedIssues,
+            startAt: Number.isFinite(data.startAt) ? data.startAt : startAt,
+            maxResults: Number.isFinite(data.maxResults) ? data.maxResults : maxResults,
+            total: Number.isFinite(data.total) ? data.total : trimmedIssues.length + startAt,
+            nextPageToken: typeof data.nextPageToken === 'string' && data.nextPageToken.length > 0 ? data.nextPageToken : null,
+            isLast: typeof data.isLast === 'boolean' ? data.isLast : undefined,
+            warningMessages: Array.isArray(data.warningMessages) && data.warningMessages.length ? data.warningMessages : undefined,
+            names: data.names,
+            schema: data.schema
+        };
+
+        setApiSearchCache(cacheKey, trimmedResponse);
+
+        res.json(trimmedResponse);
     } catch (error) {
+        const status = error.response?.status || 500;
         console.error('JIRA API Error:', error.response?.data || error.message);
-        res.status(500).json({ 
+        res.status(status).json({
             error: error.message,
             details: error.response?.data || 'No additional details available'
         });

@@ -8,31 +8,215 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg: #eef3f8;
+            --surface: #ffffff;
+            --surface-alt: #f7f9fc;
+            --border: #d8e0eb;
+            --text: #1f2937;
+            --muted: #5b6472;
+            --primary: #2563eb;
+            --primary-soft: rgba(37, 99, 235, 0.12);
+            --shadow-sm: 0 4px 14px rgba(15, 23, 42, 0.08);
+            --shadow-md: 0 12px 30px rgba(15, 23, 42, 0.12);
+            --radius: 14px;
+        }
         body {
             font-family: 'Inter', sans-serif;
-            background: linear-gradient(135deg, #0f1419 0%, #1a2332 50%, #2c5282 100%);
-            min-height: 100vh; color: #333; padding: 20px;
+            background: var(--bg);
+            min-height: 100vh;
+            color: var(--text);
+            padding: 0;
         }
-        .container { max-width: 1400px; margin: 0 auto; }
+        .container {
+            width: 100%;
+            max-width: 1320px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+        .app-shell { min-height: 100vh; display: flex; flex-direction: column; }
+        .app-header {
+            position: sticky;
+            top: 0;
+            z-index: 1100;
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            box-shadow: var(--shadow-sm);
+            height: 72px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 20px;
+        }
+        .app-header-left,
+        .app-header-right { display: flex; align-items: center; gap: 12px; }
+        .app-logo { font-size: 1rem; font-weight: 700; color: var(--text); }
+        .header-icon-button {
+            border: 1px solid var(--border);
+            background: var(--surface-alt);
+            color: var(--text);
+            width: 38px;
+            height: 38px;
+            border-radius: 10px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+        .header-icon-button:hover { background: var(--primary-soft); color: var(--primary); }
+        .profile-trigger {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 5px 10px;
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            background: var(--surface-alt);
+            cursor: pointer;
+        }
+        .profile-avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #2563eb, #7c3aed);
+            color: #fff;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 12px;
+        }
+        .profile-meta { display: flex; flex-direction: column; }
+        .profile-meta strong { font-size: 12px; color: var(--text); }
+        .profile-meta span { font-size: 11px; color: var(--muted); }
+        .app-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(2, 6, 23, 0.3);
+            backdrop-filter: blur(1px);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s ease;
+            z-index: 1090;
+        }
+        .app-overlay.visible { opacity: 1; pointer-events: auto; }
+        .app-body { flex: 1; }
+        .main-region { width: 100%; }
+        .help-drawer {
+            position: fixed;
+            top: 72px;
+            right: 0;
+            width: 360px;
+            max-width: 100%;
+            height: calc(100vh - 72px);
+            background: var(--surface);
+            border-left: 1px solid var(--border);
+            box-shadow: var(--shadow-md);
+            transform: translateX(100%);
+            transition: transform 0.24s ease;
+            z-index: 1200;
+            display: flex;
+            flex-direction: column;
+        }
+        .help-drawer.open { transform: translateX(0); }
+        .help-header { padding: 18px; border-bottom: 1px solid var(--border); }
+        .help-tabs { display: flex; gap: 8px; padding: 12px 18px; border-bottom: 1px solid var(--border); }
+        .help-tabs button {
+            flex: 1;
+            border: 1px solid var(--border);
+            background: var(--surface-alt);
+            border-radius: 9px;
+            padding: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            color: var(--muted);
+        }
+        .help-tabs button.active { background: var(--primary-soft); color: var(--primary); border-color: rgba(37, 99, 235, 0.4); }
+        .help-content { display: none; padding: 16px 18px; overflow-y: auto; color: var(--text); }
+        .help-content.active { display: block; }
+        .profile-dropdown {
+            position: absolute;
+            top: 62px;
+            right: 16px;
+            width: 250px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            box-shadow: var(--shadow-md);
+            display: none;
+            z-index: 1200;
+        }
+        .profile-dropdown.open { display: block; }
+        .profile-summary { display: flex; gap: 10px; padding: 12px; border-bottom: 1px solid var(--border); }
+        .profile-info { display: flex; flex-direction: column; gap: 2px; }
+        .profile-info strong { font-size: 13px; color: var(--text); }
+        .profile-info span { font-size: 12px; color: var(--muted); }
+        .profile-menu { list-style: none; margin: 0; padding: 6px 0; }
+        .profile-menu button {
+            width: 100%;
+            text-align: left;
+            border: none;
+            background: transparent;
+            padding: 10px 12px;
+            cursor: pointer;
+            color: var(--text);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .profile-menu button:hover { background: var(--primary-soft); color: var(--primary); }
+        .profile-credentials {
+            margin: 8px 12px 12px;
+            padding: 10px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: var(--surface-alt);
+            color: var(--text);
+            font-size: 12px;
+            display: grid;
+            gap: 4px;
+        }
+        .profile-credentials.hidden { display: none; }
+        .footer {
+            background: var(--surface);
+            border-top: 1px solid var(--border);
+            color: var(--muted);
+            font-size: 12px;
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+            flex-wrap: wrap;
+            padding: 10px 16px;
+        }
         .header {
-            background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px);
-            padding: 30px; border-radius: 20px; margin-bottom: 30px;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15); text-align: center;
+            background: var(--surface);
+            padding: 24px 28px;
+            border-radius: 18px;
+            margin-bottom: 20px;
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow-sm);
+            text-align: left;
         }
-        .header h1 { font-size: 2.5rem; font-weight: 700; color: #1a202c; margin-bottom: 10px; }
-        .header p { font-size: 1.1rem; color: #4a5568; font-weight: 400; }
+        .header h1 { font-size: 2rem; font-weight: 700; color: var(--text); margin-bottom: 6px; }
+        .header p { font-size: 0.98rem; color: var(--muted); font-weight: 500; }
         .search-section {
-            background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(10px);
-            padding: 40px; border-radius: 20px; margin-bottom: 30px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            background: var(--surface);
+            padding: 24px;
+            border-radius: 18px;
+            margin-bottom: 20px;
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow-sm);
         }
-        .search-section h2 { font-size: 1.5rem; font-weight: 600; color: #2d3748; margin-bottom: 20px; }
+        .search-section h2 { font-size: 1.18rem; font-weight: 700; color: var(--text); margin-bottom: 14px; }
         .search-controls { display: flex; gap: 15px; align-items: center; flex-wrap: wrap; }
         .search-input {
-            flex: 1; min-width: min(100%, 280px); width: 100%; padding: 15px 20px; border: 2px solid #e2e8f0;
-            border-radius: 12px; font-size: 16px; font-family: inherit; transition: all 0.3s ease;
+            flex: 1; min-width: min(100%, 280px); width: 100%; padding: 13px 16px; border: 1px solid var(--border);
+            border-radius: 12px; font-size: 15px; font-family: inherit; transition: all 0.2s ease;
+            background: var(--surface-alt);
+            color: var(--text);
         }
-        .search-input:focus { outline: none; border-color: #3182ce; box-shadow: 0 0 0 3px rgba(49, 130, 206, 0.1); }
+        .search-input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.16); }
         
         .search-container {
             position: relative;
@@ -45,15 +229,15 @@
             top: 100%;
             left: 0;
             right: 0;
-            background: white;
-            border: 2px solid #e2e8f0;
+            background: var(--surface);
+            border: 1px solid var(--border);
             border-top: none;
             border-radius: 0 0 12px 12px;
             max-height: 200px;
             overflow-y: auto;
             z-index: 1000;
             display: none;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            box-shadow: var(--shadow-md);
         }
 
         .suggestion-item {
@@ -66,24 +250,18 @@
             transition: background 0.2s ease;
         }
 
-        .suggestion-item strong {
-            color: #1a202c;
-            font-weight: 600;
-        }
+        .suggestion-item strong { color: var(--text); font-weight: 600; }
 
-        .suggestion-item small {
-            color: #64748b;
-            font-size: 0.75rem;
-        }
+        .suggestion-item small { color: var(--muted); font-size: 0.75rem; }
 
         .suggestion-item.highlighted,
         .suggestion-item:hover {
-            background: #ebf8ff;
+            background: var(--primary-soft);
         }
 
         .story-details {
-            background: #f7fafc;
-            border-top: 1px solid #e2e8f0;
+            background: var(--surface-alt);
+            border-top: 1px solid var(--border);
             margin-top: 12px;
             padding: 12px;
             border-radius: 6px;
@@ -95,7 +273,7 @@
             align-items: center;
             gap: 8px;
             padding: 12px 20px;
-            border-radius: 12px;
+            border-radius: 10px;
             border: none;
             font-weight: 600;
             cursor: pointer;
@@ -109,19 +287,20 @@
         }
 
         .btn-primary {
-            background: linear-gradient(135deg, #4299e1, #3182ce);
+            background: linear-gradient(135deg, #2563eb, #1d4ed8);
             color: white;
-            box-shadow: 0 8px 18px rgba(66, 153, 225, 0.25);
+            box-shadow: 0 8px 18px rgba(37, 99, 235, 0.25);
         }
 
         .btn-primary:hover {
             transform: translateY(-1px);
-            box-shadow: 0 12px 24px rgba(49, 130, 206, 0.3);
+            box-shadow: 0 12px 24px rgba(37, 99, 235, 0.3);
         }
 
         .btn-secondary {
-            background: rgba(226, 232, 240, 0.8);
-            color: #1a202c;
+            background: var(--surface-alt);
+            color: var(--text);
+            border: 1px solid var(--border);
         }
 
         .btn-secondary:hover {
@@ -142,13 +321,13 @@
 
         .loading,
         .empty-state {
-            background: rgba(255, 255, 255, 0.9);
-            border-radius: 18px;
+            background: var(--surface);
+            border-radius: 16px;
             padding: 40px;
             text-align: center;
-            box-shadow: 0 12px 28px rgba(15, 23, 42, 0.18);
-            border: 1px solid rgba(226, 232, 240, 0.6);
-            color: #1f2937;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border);
+            color: var(--text);
         }
 
         .loading h3,
@@ -159,7 +338,7 @@
 
         .loading p,
         .empty-state p {
-            color: #4a5568;
+            color: var(--muted);
             font-size: 0.95rem;
         }
 
@@ -179,11 +358,11 @@
         }
 
         .feature-card {
-            background: rgba(255, 255, 255, 0.92);
-            border-radius: 18px;
-            box-shadow: 0 14px 32px rgba(15, 23, 42, 0.18);
+            background: var(--surface);
+            border-radius: 16px;
+            box-shadow: var(--shadow-sm);
             overflow: hidden;
-            border: 1px solid rgba(226, 232, 240, 0.6);
+            border: 1px solid var(--border);
         }
 
         .feature-card + .feature-card {
@@ -196,14 +375,14 @@
             align-items: center;
             padding: 20px 24px;
             cursor: pointer;
-            background: linear-gradient(135deg, rgba(248, 250, 252, 0.95), rgba(237, 242, 247, 0.9));
+            background: var(--surface-alt);
         }
 
         .feature-title {
             display: flex;
             align-items: center;
             gap: 10px;
-            color: #1f2937;
+            color: var(--text);
             font-size: 1.02rem;
         }
 
@@ -299,6 +478,8 @@
         .stat-item { text-align: center; color: white; }
         .stat-number { font-size: 2rem; font-weight: 700; margin-bottom: 5px; }
         .stat-label { font-size: 0.9rem; opacity: 0.9; font-weight: 500; }
+        .epic-count-stat .stat-number { color: #111827; }
+        .epic-count-stat .stat-label { color: #111827; opacity: 1; }
         .email-button {
             margin-left: 15px; padding: 8px 16px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
             color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; 
@@ -341,6 +522,29 @@
             cursor: pointer;
             z-index: 1200;
             transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .chatbot-greeting {
+            position: fixed;
+            bottom: 98px;
+            right: 24px;
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.92), rgba(76, 29, 149, 0.9));
+            color: #f5f3ff;
+            padding: 10px 16px;
+            border-radius: 18px;
+            box-shadow: 0 16px 34px rgba(15, 23, 42, 0.28);
+            cursor: pointer;
+            z-index: 1200;
+            display: none;
+            align-items: center;
+            gap: 8px;
+            font-weight: 600;
+            font-size: 0.86rem;
+            border: 1px solid rgba(148, 163, 184, 0.25);
+        }
+
+        .chatbot-greeting.visible {
+            display: inline-flex;
         }
 
         .chatbot-launcher:hover {
@@ -445,6 +649,70 @@
             transform: translateY(-1px);
         }
 
+        .chatbot-flow-card {
+            width: 100%;
+            background: rgba(30, 41, 59, 0.85);
+            border: 1px solid rgba(148, 163, 184, 0.25);
+            border-radius: 12px;
+            padding: 10px 12px;
+            color: #e2e8f0;
+            font-size: 0.84rem;
+        }
+
+        .chatbot-flow-title {
+            font-size: 0.78rem;
+            font-weight: 600;
+            color: #cbd5f5;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .chatbot-radio-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .chatbot-radio-option {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 10px;
+            border: 1px solid rgba(148, 163, 184, 0.3);
+            border-radius: 10px;
+            cursor: pointer;
+            background: rgba(15, 23, 42, 0.7);
+        }
+
+        .chatbot-date-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .chatbot-date-grid input {
+            width: 100%;
+            border-radius: 8px;
+            border: 1px solid rgba(148, 163, 184, 0.35);
+            padding: 7px 8px;
+            background: rgba(15, 23, 42, 0.75);
+            color: #f8fafc;
+            font-size: 0.82rem;
+        }
+
+        .chatbot-flow-submit {
+            width: 100%;
+            border: none;
+            border-radius: 8px;
+            padding: 8px 10px;
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            color: white;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
         .chatbot-footer {
             padding: 12px 16px 16px;
             display: flex;
@@ -497,36 +765,117 @@
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <h1><i class="fas fa-tasks"></i> JIRA Dashboard</h1>
-            <p>Epic & Story Management System with Advanced Bug Detection</p>
-        </div>
-        <div class="search-section">
-            <h2><i class="fas fa-search"></i> Search JIRA Epics & Stories</h2>
-            <div class="search-controls">
-                <div class="search-container">
-                    <input type="text" id="jqlInput" class="search-input" value="project = CTL-Fix AND fixVersion =&quot;CT PI26 Sep17-Jan06&quot; AND issuetype = &quot;Epic (Feature)&quot; AND &quot;Team[Team]&quot; = 5441" placeholder="Enter JQL query">
-                    <div id="suggestionsDropdown" class="suggestions-dropdown"></div>
+    <div class="app-shell">
+        <header class="app-header">
+            <div class="app-header-left">
+                <div class="app-logo">Jira Dashboard</div>
+            </div>
+            <div class="app-header-right">
+                <button id="helpToggle" class="header-icon-button" aria-label="Open help center"><i class="fas fa-circle-question"></i></button>
+                <div id="profileTrigger" class="profile-trigger" role="button" tabindex="0" aria-haspopup="menu" aria-expanded="false">
+                    <div id="profileTriggerAvatar" class="profile-avatar">ZM</div>
+                    <div class="profile-meta">
+                        <strong id="profileTriggerName">Zuha Mujawar</strong>
+                        <span id="profileTriggerSubtext">Zuha.Mujawar@lumen.com</span>
+                    </div>
+                    <i class="fas fa-chevron-down"></i>
                 </div>
-                <button class="btn btn-primary" onclick="console.log('Search button clicked'); triggerManualSearch('button');"><i class="fas fa-search"></i> Search</button>
-                <button class="btn btn-secondary" onclick="clearResults()"><i class="fas fa-times"></i> Clear</button>
+            </div>
+        </header>
+
+        <div id="appOverlay" class="app-overlay" aria-hidden="true"></div>
+
+        <div class="app-body">
+            <main class="main-region" id="mainRegion">
+                <div class="container">
+                    <div class="header">
+                        <h1><i class="fas fa-tasks"></i> JIRA Dashboard</h1>
+                        <p>Epic & Story Management System with Advanced Bug Detection</p>
+                    </div>
+                    <div class="search-section">
+                        <h2><i class="fas fa-search"></i> Search JIRA Epics & Stories</h2>
+                        <div class="search-controls">
+                            <div class="search-container">
+                                <input type="text" id="jqlInput" class="search-input" value="project = CTL-Fix AND fixVersion =&quot;CT PI26 Sep17-Jan06&quot; AND issuetype = &quot;Epic (Feature)&quot; AND &quot;Team[Team]&quot; = 5441" placeholder="Enter JQL query">
+                                <div id="suggestionsDropdown" class="suggestions-dropdown"></div>
+                            </div>
+                            <button class="btn btn-primary" onclick="console.log('Search button clicked'); triggerManualSearch('button');"><i class="fas fa-search"></i> Search</button>
+                            <button class="btn btn-secondary" onclick="clearResults()"><i class="fas fa-times"></i> Clear</button>
+                        </div>
+                    </div>
+                    <div id="loadingState" class="loading" style="display: none;">
+                        <div class="spinner"></div>
+                        <h3>Searching JIRA...</h3>
+                        <p>Please wait while we fetch your data</p>
+                    </div>
+                    <div id="searchResults" class="results"><div id="resultsContent"></div></div>
+                    <div id="emptyState" class="empty-state">
+                        <h3><i class="fas fa-rocket"></i> Ready to Search</h3>
+                        <p>Enter a JQL query above to start exploring your JIRA epics and stories. The dashboard will automatically detect and highlight any blocking bugs.</p>
+                    </div>
+                </div>
+            </main>
+        </div>
+
+        <footer class="footer">
+            <div>© <span id="currentYear">2026</span> Lumen. All rights reserved.</div>
+            <div>Contact: Zuha.Mujawar@lumen.com</div>
+        </footer>
+    </div>
+
+    <aside id="helpDrawer" class="help-drawer" aria-label="Help center" aria-hidden="true">
+        <div class="help-header">
+            <h2>Help Center</h2>
+            <p style="color: var(--muted); font-size: 12px;">Find guidance, shortcuts, and support resources.</p>
+        </div>
+        <div class="help-tabs" role="tablist">
+            <button class="active" data-help-tab="faq" role="tab" aria-selected="true">FAQ</button>
+            <button data-help-tab="shortcuts" role="tab" aria-selected="false">Shortcuts</button>
+            <button data-help-tab="contact" role="tab" aria-selected="false">Support</button>
+        </div>
+        <div class="help-content active" data-help-content="faq" role="tabpanel" aria-hidden="false">
+            <ul style="padding-left: 18px; margin: 0;">
+                <li>Use Search to refresh Jira data quickly.</li>
+                <li>Open story details for additional fields.</li>
+                <li>Use email notifications for missing story inputs.</li>
+            </ul>
+        </div>
+        <div class="help-content" data-help-content="shortcuts" role="tabpanel" aria-hidden="true">
+            <ul style="padding-left: 18px; margin: 0;">
+                <li>Enter: Send chatbot message</li>
+                <li>Esc: Close chatbot/help/profile</li>
+                <li>Click profile: View account details</li>
+            </ul>
+        </div>
+        <div class="help-content" data-help-content="contact" role="tabpanel" aria-hidden="true">
+            <p style="margin: 0;">Need support? Contact delivery operations team.</p>
+        </div>
+    </aside>
+
+    <div id="profileDropdown" class="profile-dropdown" role="menu" aria-hidden="true">
+        <div class="profile-summary">
+            <div id="profileSummaryAvatar" class="profile-avatar">ZM</div>
+            <div class="profile-info">
+                <strong id="profileSummaryName">Zuha Mujawar</strong>
+                <span id="profileSummaryEmail">Zuha.Mujawar@lumen.com</span>
             </div>
         </div>
-        <div id="loadingState" class="loading" style="display: none;">
-            <div class="spinner"></div>
-            <h3>Searching JIRA...</h3>
-            <p>Please wait while we fetch your data</p>
-        </div>
-        <div id="searchResults" class="results"><div id="resultsContent"></div></div>
-        <div id="emptyState" class="empty-state">
-            <h3><i class="fas fa-rocket"></i> Ready to Search</h3>
-            <p>Enter a JQL query above to start exploring your JIRA epics and stories. The dashboard will automatically detect and highlight any blocking bugs.</p>
+        <ul class="profile-menu">
+            <li><button id="profileMenuProfileBtn" type="button" role="menuitem"><i class="fas fa-user"></i> Profile</button></li>
+            <li><button id="profileMenuLogoutBtn" type="button" role="menuitem"><i class="fas fa-right-from-bracket"></i> Logout</button></li>
+        </ul>
+        <div id="profileCredentialsPanel" class="profile-credentials hidden" aria-live="polite">
+            <div><strong>Name:</strong> <span id="profileDetailsName">Zuha Mujawar</span></div>
+            <div><strong>Email:</strong> <span id="profileDetailsEmail">Zuha.Mujawar@lumen.com</span></div>
         </div>
     </div>
 
     <div id="chatbotLauncher" class="chatbot-launcher" aria-label="Open strategy assistant" role="button">
         <i class="fas fa-comments"></i>
+    </div>
+
+    <div id="chatbotGreeting" class="chatbot-greeting" role="button" aria-label="Open strategy assistant greeting">
+        <span>Hello Luminates!!</span>
     </div>
 
     <div id="chatbotPanel" class="chatbot-panel" aria-live="polite">
@@ -546,6 +895,139 @@
             <button id="chatbotSend">Send</button>
         </div>
     </div>
+
+    <script>
+        (function initAppShell() {
+            const overlay = document.getElementById('appOverlay');
+            const helpToggle = document.getElementById('helpToggle');
+            const helpDrawer = document.getElementById('helpDrawer');
+            const profileTrigger = document.getElementById('profileTrigger');
+            const profileDropdown = document.getElementById('profileDropdown');
+            const profileMenuProfileBtn = document.getElementById('profileMenuProfileBtn');
+            const profileMenuLogoutBtn = document.getElementById('profileMenuLogoutBtn');
+            const profileSummaryName = document.getElementById('profileSummaryName');
+            const profileSummaryEmail = document.getElementById('profileSummaryEmail');
+            const profileDetailsName = document.getElementById('profileDetailsName');
+            const profileDetailsEmail = document.getElementById('profileDetailsEmail');
+            const profileTriggerName = document.getElementById('profileTriggerName');
+            const profileTriggerSubtext = document.getElementById('profileTriggerSubtext');
+            const profileCredentialsPanel = document.getElementById('profileCredentialsPanel');
+            const currentYear = document.getElementById('currentYear');
+
+            if (currentYear) {
+                currentYear.textContent = String(new Date().getFullYear());
+            }
+
+            const getProfile = () => {
+                const name = (localStorage.getItem('currentUser') || 'Zuha Mujawar').trim();
+                const email = (localStorage.getItem('currentEmail') || 'Zuha.Mujawar@lumen.com').trim();
+                return { name, email };
+            };
+
+            const syncProfile = () => {
+                const profile = getProfile();
+                if (profileTriggerName) profileTriggerName.textContent = profile.name;
+                if (profileTriggerSubtext) profileTriggerSubtext.textContent = profile.email;
+                if (profileSummaryName) profileSummaryName.textContent = profile.name;
+                if (profileSummaryEmail) profileSummaryEmail.textContent = profile.email;
+                if (profileDetailsName) profileDetailsName.textContent = profile.name;
+                if (profileDetailsEmail) profileDetailsEmail.textContent = profile.email;
+            };
+
+            const closeHelp = () => {
+                if (!helpDrawer) return;
+                helpDrawer.classList.remove('open');
+                helpDrawer.setAttribute('aria-hidden', 'true');
+                overlay?.classList.remove('visible');
+            };
+
+            const openHelp = () => {
+                if (!helpDrawer) return;
+                closeProfile();
+                helpDrawer.classList.add('open');
+                helpDrawer.setAttribute('aria-hidden', 'false');
+                overlay?.classList.add('visible');
+            };
+
+            const closeProfile = () => {
+                if (!profileDropdown) return;
+                profileDropdown.classList.remove('open');
+                profileDropdown.setAttribute('aria-hidden', 'true');
+                profileTrigger?.setAttribute('aria-expanded', 'false');
+            };
+
+            const openProfile = () => {
+                if (!profileDropdown) return;
+                closeHelp();
+                syncProfile();
+                profileDropdown.classList.add('open');
+                profileDropdown.setAttribute('aria-hidden', 'false');
+                profileTrigger?.setAttribute('aria-expanded', 'true');
+                overlay?.classList.add('visible');
+            };
+
+            helpToggle?.addEventListener('click', () => {
+                if (helpDrawer?.classList.contains('open')) {
+                    closeHelp();
+                } else {
+                    openHelp();
+                }
+            });
+
+            profileTrigger?.addEventListener('click', () => {
+                if (profileDropdown?.classList.contains('open')) {
+                    closeProfile();
+                    overlay?.classList.remove('visible');
+                } else {
+                    openProfile();
+                }
+            });
+
+            profileMenuProfileBtn?.addEventListener('click', () => {
+                profileCredentialsPanel?.classList.toggle('hidden');
+            });
+
+            profileMenuLogoutBtn?.addEventListener('click', () => {
+                if (!confirm('Are you sure you want to logout?')) return;
+                localStorage.removeItem('currentUser');
+                localStorage.removeItem('currentEmail');
+                window.location.href = 'Demo.html';
+            });
+
+            overlay?.addEventListener('click', () => {
+                closeHelp();
+                closeProfile();
+                overlay.classList.remove('visible');
+            });
+
+            document.addEventListener('keydown', event => {
+                if (event.key !== 'Escape') return;
+                closeHelp();
+                closeProfile();
+                overlay?.classList.remove('visible');
+            });
+
+            const tabs = Array.from(document.querySelectorAll('[data-help-tab]'));
+            const panels = Array.from(document.querySelectorAll('[data-help-content]'));
+            tabs.forEach(tab => {
+                tab.addEventListener('click', () => {
+                    const target = tab.getAttribute('data-help-tab');
+                    tabs.forEach(item => {
+                        const active = item === tab;
+                        item.classList.toggle('active', active);
+                        item.setAttribute('aria-selected', active ? 'true' : 'false');
+                    });
+                    panels.forEach(panel => {
+                        const active = panel.getAttribute('data-help-content') === target;
+                        panel.classList.toggle('active', active);
+                        panel.setAttribute('aria-hidden', active ? 'false' : 'true');
+                    });
+                });
+            });
+
+            syncProfile();
+        })();
+    </script>
 
     <script>
         let searchData = [];
@@ -579,6 +1061,7 @@
             const input = document.getElementById('chatbotInput');
             const sendBtn = document.getElementById('chatbotSend');
             const quickActions = document.getElementById('chatbotQuickActions');
+            const greeting = document.getElementById('chatbotGreeting');
 
             if (!launcher || !panel || !messages || !input || !sendBtn || !quickActions) {
                 return;
@@ -586,24 +1069,331 @@
 
             chatbotInitialized = true;
 
-            const quickPrompts = [
-                { label: 'Epic health', prompt: 'Show me the current epic health summary.' },
-                { label: 'Defect triage', prompt: 'Which defects need attention right now?' },
-                { label: 'Release gate', prompt: 'Are we ready for release?' },
-                { label: 'Alert setup', prompt: 'How do I configure proactive notifications?' }
-            ];
-
             let welcomeShown = false;
+            let greetingDismissed = false;
+            const chatbotFlow = {
+                issueType: '',
+                fromDate: '',
+                toDate: ''
+            };
 
-            quickActions.innerHTML = '';
-            quickPrompts.forEach(item => {
-                const button = document.createElement('button');
-                button.textContent = item.label;
-                button.addEventListener('click', () => handleUserPrompt(item.prompt));
-                quickActions.appendChild(button);
+            function hideFlowCard() {
+                quickActions.style.display = 'none';
+                quickActions.innerHTML = '';
+            }
+
+            function renderStoryDefectOptions() {
+                quickActions.style.display = 'block';
+                quickActions.innerHTML = `
+                    <div class="chatbot-flow-card">
+                        <div class="chatbot-flow-title">Select Issue Type</div>
+                        <div class="chatbot-radio-group">
+                            <label class="chatbot-radio-option">
+                                <input type="radio" name="chatbotIssueType" value="Story" ${chatbotFlow.issueType === 'Story' ? 'checked' : ''}>
+                                <span>Story</span>
+                            </label>
+                            <label class="chatbot-radio-option">
+                                <input type="radio" name="chatbotIssueType" value="Defect" ${chatbotFlow.issueType === 'Defect' ? 'checked' : ''}>
+                                <span>Defect</span>
+                            </label>
+                        </div>
+                    </div>
+                `;
+
+                const radios = quickActions.querySelectorAll('input[name="chatbotIssueType"]');
+                radios.forEach(radio => {
+                    radio.addEventListener('change', event => {
+                        const selectedType = event?.target?.value;
+                        if (!selectedType) {
+                            return;
+                        }
+                        chatbotFlow.issueType = selectedType;
+                        chatbotFlow.fromDate = '';
+                        chatbotFlow.toDate = '';
+                        appendMessage('user', selectedType);
+                        appendMessage('bot', `Please provide a date range for ${selectedType.toLowerCase()} issues.`);
+                        renderDateRangeOptions();
+                    });
+                });
+            }
+
+            function renderDateRangeOptions() {
+                if (!chatbotFlow.issueType) {
+                    renderStoryDefectOptions();
+                    return;
+                }
+
+                quickActions.style.display = 'block';
+                quickActions.innerHTML = `
+                    <div class="chatbot-flow-card">
+                        <div class="chatbot-flow-title">${chatbotFlow.issueType} Date Range</div>
+                        <div class="chatbot-date-grid">
+                            <input id="chatbotFromDate" type="date" aria-label="Start date" value="${chatbotFlow.fromDate}">
+                            <input id="chatbotToDate" type="date" aria-label="End date" value="${chatbotFlow.toDate}">
+                        </div>
+                        <button id="chatbotFetchByDate" class="chatbot-flow-submit" type="button">Fetch ${chatbotFlow.issueType}</button>
+                    </div>
+                `;
+
+                const fromInput = document.getElementById('chatbotFromDate');
+                const toInput = document.getElementById('chatbotToDate');
+                const fetchButton = document.getElementById('chatbotFetchByDate');
+
+                fetchButton?.addEventListener('click', async () => {
+                    const fromDate = (fromInput?.value || '').trim();
+                    const toDate = (toInput?.value || '').trim();
+                    if (!fromDate || !toDate) {
+                        appendMessage('bot', 'Please enter both start and end dates.');
+                        return;
+                    }
+                    if (new Date(fromDate) > new Date(toDate)) {
+                        appendMessage('bot', 'Start date should be before end date.');
+                        return;
+                    }
+
+                    chatbotFlow.fromDate = fromDate;
+                    chatbotFlow.toDate = toDate;
+                    appendMessage('user', `${fromDate} to ${toDate}`);
+                    hideFlowCard();
+                    await runIssueTypeDateSearch();
+                });
+            }
+
+            function resolveProjectClause() {
+                const jqlInputValue = (document.getElementById('jqlInput')?.value || '').trim();
+                const quotedMatch = jqlInputValue.match(/project\s*=\s*"([^"]+)"/i);
+                if (quotedMatch?.[1]) {
+                    return `project = "${quotedMatch[1]}"`;
+                }
+                const plainMatch = jqlInputValue.match(/project\s*=\s*([A-Za-z0-9_-]+)/i);
+                if (plainMatch?.[1]) {
+                    return `project = ${plainMatch[1]}`;
+                }
+                return '';
+            }
+
+            function formatIssueLine(issue, index) {
+                const issueKey = issue?.key || 'UNKNOWN';
+                const summary = issue?.fields?.summary || 'No summary';
+                const status = issue?.fields?.status?.name || 'Unknown status';
+                const assignee = issue?.fields?.assignee?.displayName || 'Unassigned';
+                return `${index}. ${issueKey} — ${summary} | ${status} | ${assignee}`;
+            }
+
+            async function fetchIssuesByJql(jql, nextPageToken = null) {
+                const bodyPayload = {
+                    jql,
+                    maxResults: 100,
+                    fields: ['summary', 'status', 'assignee', 'created', 'issuetype']
+                };
+                if (nextPageToken) {
+                    bodyPayload.nextPageToken = nextPageToken;
+                }
+
+                const response = await fetch('http://localhost:3000/api/jira/search', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(bodyPayload)
+                });
+
+                let payload = {};
+                try {
+                    payload = await response.json();
+                } catch (parseError) {
+                    payload = {};
+                }
+                if (!response.ok) {
+                    const message = payload?.details?.errorMessages?.[0]
+                        || payload?.details?.errors
+                        || payload?.error
+                        || `Request failed with status code ${response.status}`;
+                    throw new Error(message);
+                }
+                return payload;
+            }
+
+            async function fetchAllIssuesByJql(jql) {
+                const allIssues = [];
+                let token = null;
+                let page = 0;
+                const maxPages = 30;
+
+                while (page < maxPages) {
+                    const payload = await fetchIssuesByJql(jql, token);
+                    const issues = Array.isArray(payload?.issues) ? payload.issues : [];
+                    allIssues.push(...issues);
+
+                    token = typeof payload?.nextPageToken === 'string' && payload.nextPageToken.length > 0
+                        ? payload.nextPageToken
+                        : null;
+                    page += 1;
+
+                    if (!token) {
+                        break;
+                    }
+                }
+
+                return {
+                    issues: allIssues,
+                    total: allIssues.length
+                };
+            }
+
+            async function fetchDefectsWithFallback(baseClauses) {
+                const seen = new Set();
+                const mergedIssues = [];
+                const errors = [];
+
+                const defectClauses = ['issuetype = "Defect"', 'issuetype = "Bug"'];
+
+                for (const issueTypeClause of defectClauses) {
+                    const jql = `${[...baseClauses, issueTypeClause].join(' AND ')} ORDER BY created DESC`;
+                    try {
+                        const payload = await fetchAllIssuesByJql(jql);
+                        const issues = Array.isArray(payload?.issues) ? payload.issues : [];
+                        issues.forEach(issue => {
+                            const key = issue?.key;
+                            if (!key || seen.has(key)) {
+                                return;
+                            }
+                            seen.add(key);
+                            mergedIssues.push(issue);
+                        });
+                    } catch (error) {
+                        errors.push(error);
+                    }
+                }
+
+                if (mergedIssues.length > 0) {
+                    return { issues: mergedIssues, total: mergedIssues.length };
+                }
+
+                if (errors.length > 0) {
+                    throw errors[errors.length - 1];
+                }
+
+                return { issues: [], total: 0 };
+            }
+
+            async function runIssueTypeDateSearch() {
+                if (!chatbotFlow.issueType || !chatbotFlow.fromDate || !chatbotFlow.toDate) {
+                    appendMessage('bot', 'Choose issue type and date range first.');
+                    return;
+                }
+
+                const projectClause = resolveProjectClause();
+                const dateClauses = [
+                    'assignee = currentUser()',
+                    `created >= "${chatbotFlow.fromDate}"`,
+                    `created <= "${chatbotFlow.toDate}"`
+                ];
+                const baseClausesWithProject = projectClause ? [projectClause, ...dateClauses] : [...dateClauses];
+                const baseClausesWithoutProject = [...dateClauses];
+
+                appendMessage('bot', `Fetching ${chatbotFlow.issueType.toLowerCase()} issues assigned to you in chatbot...`);
+
+                try {
+                    let payload;
+                    if (chatbotFlow.issueType === 'Defect') {
+                        try {
+                            payload = await fetchDefectsWithFallback(baseClausesWithProject);
+                        } catch (primaryError) {
+                            if (!projectClause) {
+                                throw primaryError;
+                            }
+                            payload = await fetchDefectsWithFallback(baseClausesWithoutProject);
+                        }
+                    } else {
+                        const storyTypeClauses = ['issuetype = "Story"', 'issuetype = "User Story"'];
+                        let storyResult = null;
+                        let lastError = null;
+                        const baseVariants = projectClause
+                            ? [baseClausesWithProject, baseClausesWithoutProject]
+                            : [baseClausesWithProject];
+
+                        for (const baseVariant of baseVariants) {
+                            for (const storyClause of storyTypeClauses) {
+                                const storyJql = `${[...baseVariant, storyClause].join(' AND ')} ORDER BY created DESC`;
+                                try {
+                                    storyResult = await fetchAllIssuesByJql(storyJql);
+                                    break;
+                                } catch (error) {
+                                    lastError = error;
+                                }
+                            }
+                            if (storyResult) {
+                                break;
+                            }
+                        }
+
+                        if (!storyResult && lastError) {
+                            throw lastError;
+                        }
+                        payload = storyResult || { issues: [], total: 0 };
+                    }
+
+                    const issues = Array.isArray(payload?.issues) ? payload.issues : [];
+                    if (!issues.length) {
+                        appendMessage('bot', `No ${chatbotFlow.issueType.toLowerCase()} issues assigned to you were found for the selected date range.`);
+                        chatbotFlow.issueType = '';
+                        chatbotFlow.fromDate = '';
+                        chatbotFlow.toDate = '';
+                        renderStoryDefectOptions();
+                        return;
+                    }
+
+                    const numberedIssues = issues.map((issue, index) => formatIssueLine(issue, index + 1));
+                    appendMessage(
+                        'bot',
+                        [
+                            `${chatbotFlow.issueType} results assigned to you: ${issues.length}`,
+                            ...numberedIssues
+                        ].filter(Boolean).join('\n')
+                    );
+
+                    chatbotFlow.issueType = '';
+                    chatbotFlow.fromDate = '';
+                    chatbotFlow.toDate = '';
+                    renderStoryDefectOptions();
+                } catch (error) {
+                    appendMessage('bot', `Unable to fetch ${chatbotFlow.issueType.toLowerCase()} issues: ${error.message}`);
+                    appendMessage('bot', 'Please re-select Story or Defect and try a different date range.');
+                    chatbotFlow.issueType = '';
+                    chatbotFlow.fromDate = '';
+                    chatbotFlow.toDate = '';
+                    renderStoryDefectOptions();
+                }
+            }
+
+            function showGreetingMessage() {
+                if (!greeting || greetingDismissed) {
+                    return;
+                }
+                if (panel.classList.contains('active')) {
+                    return;
+                }
+                greeting.classList.add('visible');
+            }
+
+            function hideGreetingMessage() {
+                if (!greeting) {
+                    return;
+                }
+                greeting.classList.remove('visible');
+            }
+
+            launcher.addEventListener('click', () => {
+                greetingDismissed = true;
+                hideGreetingMessage();
+                toggleChatbot();
             });
-
-            launcher.addEventListener('click', () => toggleChatbot());
+            greeting?.addEventListener('click', () => {
+                greetingDismissed = true;
+                hideGreetingMessage();
+                toggleChatbot(true);
+            });
             closeBtn.addEventListener('click', () => toggleChatbot(false));
             sendBtn.addEventListener('click', () => {
                 handleUserPrompt(input.value);
@@ -626,7 +1416,15 @@
                 panel.classList.toggle('active', shouldOpen);
                 if (shouldOpen) {
                     ensureWelcome();
+                    if (!chatbotFlow.issueType) {
+                        renderStoryDefectOptions();
+                    } else {
+                        renderDateRangeOptions();
+                    }
+                    hideGreetingMessage();
                     setTimeout(() => input.focus(), 150);
+                } else if (!greetingDismissed) {
+                    showGreetingMessage();
                 }
             }
 
@@ -634,8 +1432,7 @@
                 if (welcomeShown) {
                     return;
                 }
-                appendMessage('bot', 'Hi there! I am your Delivery Strategist assistant. Ask me about epic status, defect hygiene, release readiness, or notification workflows.');
-                appendMessage('bot', 'You can start with a quick prompt or type a question such as "Which stories are missing acceptance criteria?"');
+                appendMessage('bot', 'Welcome! Select Story or Defect, then choose a date range to fetch issues here in chat.');
                 welcomeShown = true;
             }
 
@@ -659,13 +1456,14 @@
                 appendMessage('user', value);
                 input.value = '';
 
-                setTimeout(() => {
-                    const response = generateResponse(value.toLowerCase());
+                setTimeout(async () => {
+                    const response = await generateResponse(value);
                     appendMessage('bot', response);
                 }, 200);
             }
 
-            function generateResponse(query) {
+            async function generateResponse(rawInput) {
+                const query = (rawInput || '').toLowerCase().trim();
                 const snapshot = collectDashboardSnapshot();
 
                 if (/(status|health|progress|summary)/.test(query)) {
@@ -721,17 +1519,11 @@
                     ].join('\n');
                 }
 
-                if (/(report|summary|export)/.test(query)) {
-                    return [
-                        `For quick reporting you can:`,
-                        `• Export the grid by copying rendered feature sections into PowerPoint via the presentation template.`,
-                        `• Call /async/search from CI and store JSON snapshots for burndown charts.`,
-                        `• Use the upcoming chat export option to capture conversational summaries after each triage.`
-                    ].join('\n');
-                }
-
                 return 'I can help with epic health, defect hygiene, release readiness, or notification workflows. Try asking for an epic health summary or how to triage defects.';
             }
+
+            showGreetingMessage();
+
 
             function collectDashboardSnapshot() {
                 const snapshot = {
@@ -1587,7 +2379,7 @@
 
             let resultsHtml = `
                 <div class="stats-summary">
-                    <div class="stat-item">
+                    <div class="stat-item epic-count-stat">
                         <div class="stat-number">${epics.length}</div>
                         <div class="stat-label">Features (Epics)</div>
                     </div>
@@ -2070,6 +2862,14 @@
                 return stories;
             }
 
+            const MAX_SPRINT_ENRICHMENT_STORIES = 40;
+            if (storiesNeedingSprint.length > MAX_SPRINT_ENRICHMENT_STORIES) {
+                console.log(
+                    `Skipping sprint enrichment for ${storiesNeedingSprint.length} stories to keep dashboard responsive.`
+                );
+                return stories;
+            }
+
             console.log(`Enriching ${storiesNeedingSprint.length} stories with sprint data`);
 
             for (const story of storiesNeedingSprint) {
@@ -2261,8 +3061,10 @@
 
         function renderFeatureActions(epicKey, stories, storiesLoading) {
             const hasStories = Array.isArray(stories) && stories.length > 0;
+            const storiesWithMissingFields = hasStories ? findStoriesWithMissingFields(stories) : [];
+            const shouldShowEmailButton = storiesWithMissingFields.length > 0;
 
-            if (hasStories) {
+            if (hasStories && shouldShowEmailButton) {
                 return `
                     <button class="email-button" onclick="event.stopPropagation(); sendEmailsDirectly('${epicKey}')" 
                         title="Send email notifications for each story (TO: Assignee, CC: Reporter)">
@@ -2270,10 +3072,6 @@
                         📧 Email Notification
                     </button>
                 `;
-            }
-
-            if (storiesLoading) {
-                return '<span style="background: #ebf5ff; color: #1d4ed8; padding: 6px 10px; border-radius: 6px; font-size: 12px; font-weight: 600;">Loading stories...</span>';
             }
 
             return '';
@@ -2328,7 +3126,6 @@
             const bugCountLabel = bugsLoading ? 'Loading...' : `${bugCount} total count`;
             const actionsHtml = renderFeatureActions(epic.key, stories, storiesLoading);
             const cardId = `feature-card-${epic.key}`;
-            const epicFixVersion = getFixVersionLabel(epic.fields);
 
             // Extract Epic Feature Number from various possible fields
             let featureNumber = '';
@@ -2391,9 +3188,6 @@
                         <div class="feature-title">
                             <i class="fas fa-plus-circle feature-toggle-icon" style="color: #3182ce; margin-right: 8px; transition: transform 0.3s ease;"></i>
                             <strong>Feature - ${epic.key}: ${epic.fields.summary}</strong>
-                            <span style="margin-left: 12px; background: #eef2ff; color: #3730a3; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px;">
-                                <i class="fas fa-tag"></i>${epicFixVersion}
-                            </span>
                         </div>
                         <div class="feature-actions" id="feature-actions-${epic.key}" style="display: flex; align-items: center; gap: 8px;">
                             ${actionsHtml}
