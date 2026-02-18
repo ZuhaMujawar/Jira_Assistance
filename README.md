@@ -1,6 +1,6 @@
 # Feature Lifecycle Navigator (FLN)
 
-A comprehensive JIRA dashboard for tracking epics, stories, and bugs with advanced features including email notifications, JIRA integration, and real-time status tracking.
+A comprehensive Jira- Feature Strategy Engine(FSE) platform for tracking epics, stories, and bugs with advanced features including email notifications, JIRA integration, and real-time status tracking.
 
 ## 🚀 Features
 

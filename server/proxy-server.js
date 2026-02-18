@@ -1402,21 +1402,21 @@ app.post('/auth/forgot-password', async (req, res) => {
         const resetEmailBody = [
             'Hello,',
             '',
-            'We received a request to reset your JIRA Dashboard password.',
+            'We received a request to reset your Jira- Feature Strategy Engine(FSE) password.',
             '',
             `Reset link: ${resetLink}`,
             '',
             'If you did not request this, please ignore this email.',
             '',
             'Regards,',
-            'JIRA Dashboard Support Team'
+            'Jira- Feature Strategy Engine(FSE) Support Team'
         ].join('\n');
 
         const { sendEmailsViaOutlook } = require('./send-emails.js');
         const result = await sendEmailsViaOutlook([
             {
                 to: email,
-                subject: 'JIRA Dashboard Password Reset',
+                subject: 'Jira- Feature Strategy Engine(FSE) Password Reset',
                 body: resetEmailBody,
                 story: 'Password Reset'
             }
