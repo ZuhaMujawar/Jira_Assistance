@@ -31,17 +31,32 @@ try {
     
     foreach ($email in $emails) {
         try {
-            Write-Host "📧 Sending email for story: $($email.story)"
+            $emailContext = if ($email.story) { $email.story } elseif ($email.subject) { $email.subject } else { 'General notification' }
+            Write-Host "📧 Sending email for: $emailContext"
             
             # Create mail item
             $mailItem = $outlook.CreateItem(0)  # olMailItem = 0
             
             # Set email properties
-            $mailItem.To = $email.reporterEmail
-            if ($email.assigneeEmail -and ($email.assigneeEmail -ne $email.reporterEmail)) {
+            if ($email.to) {
+                $mailItem.To = $email.to
+            } else {
+                $mailItem.To = $email.reporterEmail
+            }
+
+            if ($email.cc) {
+                $mailItem.CC = $email.cc
+            }
+            elseif ($email.assigneeEmail -and ($email.assigneeEmail -ne $email.reporterEmail)) {
                 $mailItem.CC = $email.assigneeEmail
             }
-            $mailItem.Subject = "Missing required field - $($email.story) - Action Required"
+
+            if ($email.subject) {
+                $mailItem.Subject = $email.subject
+            } else {
+                $mailItem.Subject = "Missing required field - $($email.story) - Action Required"
+            }
+
             $mailItem.Body = $email.body
             
             # Send email

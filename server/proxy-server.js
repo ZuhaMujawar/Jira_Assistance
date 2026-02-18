@@ -1383,6 +1383,65 @@ app.post('/send-emails', async (req, res) => {
     }
 });
 
+app.post('/auth/forgot-password', async (req, res) => {
+    try {
+        const email = (req.body?.email || '').toString().trim().toLowerCase();
+
+        if (!email) {
+            return res.status(400).json({ error: 'Email is required.' });
+        }
+
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email) || !email.endsWith('@lumen.com')) {
+            return res.status(400).json({ error: 'Please provide a valid @lumen.com email address.' });
+        }
+
+        const resetToken = randomUUID();
+        const resetLink = `http://localhost:3000/demo?resetToken=${encodeURIComponent(resetToken)}&email=${encodeURIComponent(email)}`;
+
+        const resetEmailBody = [
+            'Hello,',
+            '',
+            'We received a request to reset your JIRA Dashboard password.',
+            '',
+            `Reset link: ${resetLink}`,
+            '',
+            'If you did not request this, please ignore this email.',
+            '',
+            'Regards,',
+            'JIRA Dashboard Support Team'
+        ].join('\n');
+
+        const { sendEmailsViaOutlook } = require('./send-emails.js');
+        const result = await sendEmailsViaOutlook([
+            {
+                to: email,
+                subject: 'JIRA Dashboard Password Reset',
+                body: resetEmailBody,
+                story: 'Password Reset'
+            }
+        ]);
+
+        if (!result || Number(result.success) < 1) {
+            return res.status(500).json({
+                error: 'Failed to send reset email. Please try again.',
+                details: result?.error || 'Outlook could not send the email.'
+            });
+        }
+
+        res.json({
+            success: true,
+            message: `Password reset link has been sent to ${email}.`
+        });
+    } catch (error) {
+        console.error('Forgot password endpoint error:', error);
+        res.status(500).json({
+            error: 'Unable to process forgot password request.',
+            details: error.message
+        });
+    }
+});
+
 app.listen(3000, () => {
     console.log('JIRA Proxy Server running on http://localhost:3000');
     console.log('Make sure to update dashboard.html to use this proxy URL');

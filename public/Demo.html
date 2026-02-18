@@ -362,7 +362,7 @@
                 <button type="submit" class="submit-btn">Login</button>
                 
                 <div class="forgot-password">
-                    <a href="#" onclick="showForgotPassword()">Forgot Password?</a>
+                    <a href="#" onclick="showForgotPassword(); return false;">Forgot Password?</a>
                 </div>
             </form>
 
@@ -385,12 +385,33 @@
                 
                 <button type="submit" class="submit-btn">Sign Up</button>
             </form>
+
+            <!-- Reset Password Form -->
+            <form id="resetForm" class="form">
+                <div class="form-group">
+                    <input type="email" id="resetEmail" name="email" placeholder="Reset email" required readonly>
+                    <label for="resetEmail">Email</label>
+                </div>
+
+                <div class="form-group">
+                    <input type="password" id="resetNewPassword" name="newPassword" placeholder="Enter new password" required>
+                    <label for="resetNewPassword">New Password</label>
+                </div>
+
+                <div class="form-group">
+                    <input type="password" id="resetConfirmPassword" name="confirmPassword" placeholder="Confirm new password" required>
+                    <label for="resetConfirmPassword">Confirm New Password</label>
+                </div>
+
+                <button type="submit" class="submit-btn">Reset Password</button>
+            </form>
         </div>
     </div>
 
     <script>
         // Simple account storage (in a real app, this would be on the server)
         let registeredAccounts = JSON.parse(localStorage.getItem('lumenAccounts')) || {};
+        let currentResetToken = '';
 
 
 
@@ -423,8 +444,10 @@
         function showLogin() {
             document.getElementById('loginForm').classList.add('active');
             document.getElementById('signupForm').classList.remove('active');
+            document.getElementById('resetForm').classList.remove('active');
             document.querySelectorAll('.toggle-btn')[0].classList.add('active');
             document.querySelectorAll('.toggle-btn')[1].classList.remove('active');
+            document.querySelector('.form-toggle').style.display = 'flex';
             clearMessages();
             updateProgressBar(0);
         }
@@ -432,14 +455,71 @@
         function showSignup() {
             document.getElementById('signupForm').classList.add('active');
             document.getElementById('loginForm').classList.remove('active');
+            document.getElementById('resetForm').classList.remove('active');
             document.querySelectorAll('.toggle-btn')[1].classList.add('active');
             document.querySelectorAll('.toggle-btn')[0].classList.remove('active');
+            document.querySelector('.form-toggle').style.display = 'flex';
             clearMessages();
             updateProgressBar(0);
         }
 
-        function showForgotPassword() {
-            showMessage('Password reset link has been sent to your email!', 'success');
+        function showResetPasswordForm(email, token) {
+            document.getElementById('loginForm').classList.remove('active');
+            document.getElementById('signupForm').classList.remove('active');
+            document.getElementById('resetForm').classList.add('active');
+            document.querySelector('.form-toggle').style.display = 'none';
+            document.getElementById('resetEmail').value = email;
+            document.getElementById('resetNewPassword').value = '';
+            document.getElementById('resetConfirmPassword').value = '';
+            currentResetToken = token || '';
+            clearMessages();
+            updateProgressBar(0);
+        }
+
+        function clearResetParamsFromUrl() {
+            const cleanUrl = `${window.location.origin}${window.location.pathname}`;
+            window.history.replaceState({}, document.title, cleanUrl);
+        }
+
+        async function showForgotPassword() {
+            const emailInput = document.getElementById('loginEmail');
+            const email = (emailInput?.value || '').trim().toLowerCase();
+
+            if (!email) {
+                showMessage('Please enter your @lumen.com email in the login email field first.', 'error');
+                return;
+            }
+
+            if (!email.endsWith('@lumen.com')) {
+                showMessage('Please use a valid Lumen email address.', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch('/auth/forgot-password', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ email })
+                });
+
+                let payload = {};
+                try {
+                    payload = await response.json();
+                } catch (parseError) {
+                    payload = {};
+                }
+
+                if (!response.ok) {
+                    const message = payload?.error || payload?.details || `Request failed with status ${response.status}`;
+                    throw new Error(message);
+                }
+
+                showMessage(payload?.message || 'Password reset link has been sent to your email.', 'success');
+            } catch (error) {
+                showMessage(`Unable to send reset link: ${error.message}`, 'error');
+            }
         }
 
         function showMessage(message, type) {
@@ -613,6 +693,71 @@
             }, 1000);
         });
 
+        // Handle Reset Password Form Submission
+        document.getElementById('resetForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+
+            const email = (document.getElementById('resetEmail').value || '').trim().toLowerCase();
+            const newPassword = document.getElementById('resetNewPassword').value;
+            const confirmPassword = document.getElementById('resetConfirmPassword').value;
+
+            setButtonLoading('resetForm', true);
+            updateProgressBar(30);
+
+            if (!email || !newPassword || !confirmPassword) {
+                setButtonLoading('resetForm', false);
+                showMessage('Please fill in all fields!', 'error');
+                updateProgressBar(0);
+                return;
+            }
+
+            if (!currentResetToken) {
+                setButtonLoading('resetForm', false);
+                showMessage('Invalid or expired reset link. Please request a new reset email.', 'error');
+                updateProgressBar(0);
+                return;
+            }
+
+            if (!registeredAccounts[email]) {
+                setButtonLoading('resetForm', false);
+                showMessage('Account not found for this email. Please sign up first.', 'error');
+                updateProgressBar(0);
+                return;
+            }
+
+            if (newPassword.length < 6) {
+                setButtonLoading('resetForm', false);
+                showMessage('Password must be at least 6 characters long!', 'error');
+                updateProgressBar(0);
+                return;
+            }
+
+            if (newPassword !== confirmPassword) {
+                setButtonLoading('resetForm', false);
+                showMessage('Passwords do not match!', 'error');
+                updateProgressBar(0);
+                return;
+            }
+
+            updateProgressBar(80);
+
+            registeredAccounts[email].password = newPassword;
+            localStorage.setItem('lumenAccounts', JSON.stringify(registeredAccounts));
+
+            setTimeout(() => {
+                updateProgressBar(100);
+                setButtonLoading('resetForm', false);
+                showMessage('Password reset successful. Please login with your new password.', 'success');
+                currentResetToken = '';
+                clearResetParamsFromUrl();
+
+                setTimeout(() => {
+                    showLogin();
+                    document.getElementById('loginEmail').value = email;
+                }, 1200);
+            }, 700);
+        });
+
         // Add input validation feedback
         document.querySelectorAll('input[type="email"]').forEach(input => {
             input.addEventListener('blur', function() {
@@ -631,6 +776,15 @@
 
         // Initialize when page loads
         window.addEventListener('load', function() {
+            const params = new URLSearchParams(window.location.search);
+            const resetToken = (params.get('resetToken') || '').trim();
+            const resetEmail = (params.get('email') || '').trim().toLowerCase();
+
+            if (resetToken && resetEmail) {
+                showResetPasswordForm(resetEmail, resetToken);
+                showMessage(`Reset your password for ${resetEmail}.`, 'success');
+            }
+
             // Add input event listeners for progress tracking
             const inputs = document.querySelectorAll('input');
             inputs.forEach(input => {
